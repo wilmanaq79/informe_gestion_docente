@@ -178,4 +178,28 @@ export interface Dashboard {
   por_corte: CorteDashboard[];
   por_docente: DocenteDashboard[];
   conteo_estado_actual: Record<string, number>;
+  generado_en: string;
+}
+
+export interface Periodo {
+  id: number;
+  nombre: string;
+  anio: number;
+  semestre: number;
+  activo: boolean;
+}
+
+export interface EventoCalendario {
+  id: number;
+  periodo_id: number;
+  actividad: string;
+  fecha_inicio: string;
+  fecha_fin: string | null;
+  orden: number;
+}
+
+export interface FiltroAlcance {
+  anio: number;
+  semestre: number | null;
+  corte: number | null;
 }

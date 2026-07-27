@@ -1,5 +1,6 @@
 import { ChangeEvent, useEffect, useState } from "react";
 import { api, mensajeError } from "../api/client";
+import CalendarioAcademico from "../components/CalendarioAcademico";
 import Header from "../components/Header";
 import { GraficoDispersion, GraficoPromedioVsMejor, GraficoRanking } from "../components/charts/DashboardCharts";
 import { EstudianteNota, PdfPreview, ProcesarResponse, ResumenMateria } from "../types";
@@ -231,6 +232,8 @@ export default function DocentePage() {
           Evaluados y Aprobaron de todas ellas. Cada materia procesada queda guardada en la base de datos
           para el Director y el Secretario Académico.
         </p>
+
+        <CalendarioAcademico />
 
         <section className="card">
           <h2>1. Corte y plantilla</h2>

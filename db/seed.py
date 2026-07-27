@@ -16,6 +16,7 @@ from sqlalchemy import select
 from db.auth import hash_password
 from db.database import engine, get_session
 from db.models import Base, Corte, PeriodoAcademico, Rol, Usuario
+from db.repository import parsear_periodo
 
 ROLES = ["docente", "director", "secretario"]
 CORTES = [
@@ -48,7 +49,8 @@ def sembrar():
         session.commit()
 
         if session.scalar(select(PeriodoAcademico).where(PeriodoAcademico.nombre == PERIODO_ACTUAL)) is None:
-            session.add(PeriodoAcademico(nombre=PERIODO_ACTUAL))
+            anio, semestre = parsear_periodo(PERIODO_ACTUAL)
+            session.add(PeriodoAcademico(nombre=PERIODO_ACTUAL, anio=anio, semestre=semestre, activo=True))
         session.commit()
 
         if session.scalar(select(Usuario).where(Usuario.username == USUARIO_BOOTSTRAP["username"])) is None:

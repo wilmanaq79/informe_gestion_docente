@@ -1,19 +1,30 @@
 """Endpoints de consulta para el Director del Programa y el Secretario
-Academico: resumen y detalle de cada docente."""
-from fastapi import APIRouter, Depends, HTTPException
+Academico: resumen y detalle de cada docente. Filtrables por Año y
+Semestre (opcional; si se omite, incluye ambos semestres del Año)."""
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from backend.api.deps import get_db, requiere_roles
-from backend.core.config import settings
 from backend.schemas.docente import (
     AsignacionOut,
     DocenteDetalleOut,
     DocenteResumenOut,
     InformeCorteOut,
 )
-from db.repository import listar_docentes
+from db.repository import listar_docentes, periodo_activo, periodo_mas_reciente, resolver_periodo_ids
 
 router = APIRouter(prefix="/api/docentes", tags=["docentes"])
+
+
+def _resolver_periodo_ids(db: Session, anio: int | None, semestre: int | None) -> list[int]:
+    if anio is None:
+        p = periodo_activo(db) or periodo_mas_reciente(db)
+        if p is None:
+            return []
+        anio = p.anio
+        if semestre is None:
+            semestre = p.semestre
+    return resolver_periodo_ids(db, anio, semestre)
 
 
 def _informe_out(informe) -> InformeCorteOut:
@@ -33,11 +44,17 @@ def _informe_out(informe) -> InformeCorteOut:
 
 
 @router.get("", response_model=list[DocenteResumenOut])
-def listar(db: Session = Depends(get_db), _usuario=Depends(requiere_roles("director", "secretario"))):
+def listar(
+    anio: int | None = Query(None, description="Año academico. Si se omite, usa el periodo actual."),
+    semestre: int | None = Query(None, ge=1, le=2, description="1 o 2. Si se omite junto con anio, usa el semestre actual; si solo se omite semestre, incluye ambos."),
+    db: Session = Depends(get_db),
+    _usuario=Depends(requiere_roles("director", "secretario")),
+):
+    periodo_ids = _resolver_periodo_ids(db, anio, semestre)
     docentes = listar_docentes(db)
     salida = []
     for d in docentes:
-        asign_periodo = [a for a in d.asignaciones if a.periodo.nombre == settings.PERIODO_ACTUAL]
+        asign_periodo = [a for a in d.asignaciones if a.periodo_id in periodo_ids]
         total_informes = sum(len(a.informes) for a in asign_periodo)
         ultimo_corte = max((i.corte.numero for a in asign_periodo for i in a.informes), default=None)
         salida.append(
@@ -53,13 +70,20 @@ def listar(db: Session = Depends(get_db), _usuario=Depends(requiere_roles("direc
 
 
 @router.get("/{docente_id}", response_model=DocenteDetalleOut)
-def detalle(docente_id: int, db: Session = Depends(get_db), _usuario=Depends(requiere_roles("director", "secretario"))):
+def detalle(
+    docente_id: int,
+    anio: int | None = Query(None, description="Año academico. Si se omite, usa el periodo actual."),
+    semestre: int | None = Query(None, ge=1, le=2, description="1 o 2. Si se omite junto con anio, usa el semestre actual; si solo se omite semestre, incluye ambos."),
+    db: Session = Depends(get_db),
+    _usuario=Depends(requiere_roles("director", "secretario")),
+):
+    periodo_ids = _resolver_periodo_ids(db, anio, semestre)
     docentes = listar_docentes(db)
     docente = next((d for d in docentes if d.id == docente_id), None)
     if docente is None:
         raise HTTPException(status_code=404, detail="Docente no encontrado")
 
-    asign_periodo = [a for a in docente.asignaciones if a.periodo.nombre == settings.PERIODO_ACTUAL]
+    asign_periodo = [a for a in docente.asignaciones if a.periodo_id in periodo_ids]
     asignaciones = [
         AsignacionOut(
             id=a.id,

@@ -1,0 +1,173 @@
+"""
+Modelo de datos normalizado (marco de referencia) para el sistema de
+Gestion y Autoevaluacion Docente -- Programa de Ingenieria de Sistemas,
+Universidad del Pacifico.
+
+Tablas de referencia/catalogo (no cambian con el uso diario):
+    roles, cortes, periodos_academicos
+
+Tablas operativas:
+    usuarios              -- los 27 docentes + director + secretario
+    asignaciones_academicas -- que materia/grupo dicta cada docente en que periodo
+    informes_corte        -- Matriculados/Asistencia/Evaluados/Aprobados por
+                              asignacion y corte (lo que hoy se escribe en Excel)
+    notas_estudiantes     -- detalle por estudiante (Corte1/2/3, Def. Pond,
+                              nota necesaria, estado) que respalda cada informe
+
+Diagrama entidad-relacion:
+
+    roles 1───* usuarios 1───* asignaciones_academicas *───1 periodos_academicos
+                                        │
+                                        1
+                                        │
+                                        *
+                              informes_corte *───1 cortes
+                                        │
+                                        1
+                                        │
+                                        *
+                              notas_estudiantes
+"""
+from datetime import datetime
+
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+# --- Catalogos / marco de referencia ----------------------------------------
+
+class Rol(Base):
+    __tablename__ = "roles"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+
+    usuarios: Mapped[list["Usuario"]] = relationship(back_populates="rol")
+
+
+class Corte(Base):
+    __tablename__ = "cortes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    numero: Mapped[int] = mapped_column(unique=True, nullable=False)  # 1, 2, 3
+    nombre: Mapped[str] = mapped_column(String(30), nullable=False)
+    peso_porcentual: Mapped[float] = mapped_column(Numeric(4, 2), nullable=False)
+
+
+class PeriodoAcademico(Base):
+    __tablename__ = "periodos_academicos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)  # '2026-1'
+
+
+# --- Usuarios y asignaciones -------------------------------------------------
+
+class Usuario(Base):
+    __tablename__ = "usuarios"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre_completo: Mapped[str] = mapped_column(String(150), nullable=False)
+    cedula: Mapped[str | None] = mapped_column(String(20), unique=True)
+    email: Mapped[str | None] = mapped_column(String(120))
+    telefono: Mapped[str | None] = mapped_column(String(30))
+    username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(200), nullable=False)
+    rol_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), nullable=False)
+    activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    rol: Mapped["Rol"] = relationship(back_populates="usuarios")
+    asignaciones: Mapped[list["AsignacionAcademica"]] = relationship(back_populates="docente")
+
+
+class AsignacionAcademica(Base):
+    """Una materia/grupo que un docente dicta en un periodo academico."""
+
+    __tablename__ = "asignaciones_academicas"
+    __table_args__ = (
+        UniqueConstraint("docente_id", "periodo_id", "asignatura", "grupo", name="uq_asignacion"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    docente_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    periodo_id: Mapped[int] = mapped_column(ForeignKey("periodos_academicos.id"), nullable=False)
+    asignatura: Mapped[str] = mapped_column(String(150), nullable=False)
+    programa: Mapped[str | None] = mapped_column(String(150))
+    grupo: Mapped[str | None] = mapped_column(String(30))
+
+    docente: Mapped["Usuario"] = relationship(back_populates="asignaciones")
+    periodo: Mapped["PeriodoAcademico"] = relationship()
+    informes: Mapped[list["InformeCorte"]] = relationship(
+        back_populates="asignacion", cascade="all, delete-orphan"
+    )
+
+
+# --- Informes por corte -------------------------------------------------------
+
+class InformeCorte(Base):
+    """Matriculados / Asistencia regular / Evaluados / Aprobados de una
+    asignacion en un corte especifico -- lo que el agente escribe en el
+    Excel de gestion docente, guardado tambien aqui para consulta del
+    director y del secretario academico."""
+
+    __tablename__ = "informes_corte"
+    __table_args__ = (
+        UniqueConstraint("asignacion_id", "corte_id", name="uq_informe_por_corte"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    asignacion_id: Mapped[int] = mapped_column(ForeignKey("asignaciones_academicas.id"), nullable=False)
+    corte_id: Mapped[int] = mapped_column(ForeignKey("cortes.id"), nullable=False)
+
+    matriculados: Mapped[int] = mapped_column(nullable=False)
+    asistencia_regular: Mapped[int | None]
+    evaluados: Mapped[int] = mapped_column(nullable=False)
+    aprobaron: Mapped[int] = mapped_column(nullable=False)
+    es_estimado: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    promedio: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    mediana: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    desviacion: Mapped[float | None] = mapped_column(Numeric(5, 2))
+
+    generado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    asignacion: Mapped["AsignacionAcademica"] = relationship(back_populates="informes")
+    corte: Mapped["Corte"] = relationship()
+    notas: Mapped[list["NotaEstudiante"]] = relationship(
+        back_populates="informe", cascade="all, delete-orphan"
+    )
+
+
+class NotaEstudiante(Base):
+    """Detalle por estudiante que respalda un InformeCorte: notas por
+    corte, acumulado ponderado (Def. Pond) y estado de aprobacion."""
+
+    __tablename__ = "notas_estudiantes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    informe_corte_id: Mapped[int] = mapped_column(
+        ForeignKey("informes_corte.id", ondelete="CASCADE"), nullable=False
+    )
+    documento: Mapped[str | None] = mapped_column(String(30))
+    nombre_estudiante: Mapped[str] = mapped_column(String(150), nullable=False)
+
+    corte1: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    corte2: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    corte3: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    def_pond: Mapped[float] = mapped_column(Numeric(5, 2), nullable=False)
+    nota_necesaria: Mapped[float | None] = mapped_column(Numeric(5, 2))
+    estado: Mapped[str] = mapped_column(String(30), nullable=False)
+
+    informe: Mapped["InformeCorte"] = relationship(back_populates="notas")

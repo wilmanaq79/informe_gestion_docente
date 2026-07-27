@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Credenciales y configuracion local (nunca versionar)
+.env
+
+# Salidas temporales generadas por la app en tiempo de ejecucion
+__salida_temp_*.xlsx
+__informe_temp_*.pdf
+~$*.xlsx
+
+# Documentos institucionales reales (datos del docente, no de ejemplo)
+documentos/*.xlsx
+!documentos/.gitkeep
+
+# Frontend (Node / Vite)
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+npm-debug.log*
+*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
+# Herramientas de asistente / IDE (config local, no del proyecto)
+.claude/
+.vscode/
+.idea/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db

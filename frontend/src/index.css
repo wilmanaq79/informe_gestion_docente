@@ -1,0 +1,427 @@
+:root {
+  --azul: #2a78d6;
+  --naranja: #eb6834;
+  --verde: #1baf7a;
+  --rojo: #d03b3b;
+  --muted: #6b6a66;
+  --surface: #ffffff;
+  --surface-2: #f7f7f5;
+  --border: #e1e0d9;
+  --texto: #16181d;
+  --texto-secundario: #52514e;
+  --sombra: 0 1px 2px rgba(11, 11, 11, 0.06), 0 4px 12px rgba(11, 11, 11, 0.04);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --surface: #17181a;
+    --surface-2: #1e2023;
+    --border: #2c2c2a;
+    --texto: #f2f2f0;
+    --texto-secundario: #c3c2b7;
+    --muted: #9a988f;
+    --sombra: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 16px rgba(0, 0, 0, 0.25);
+    color-scheme: dark;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--surface-2);
+  color: var(--texto);
+}
+
+.app-header {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 1rem 1.5rem;
+}
+
+.app-header__brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.app-header__logo {
+  height: 64px;
+  width: auto;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.app-header__logo--programa {
+  height: 56px;
+}
+
+.app-header__titles {
+  text-align: center;
+  flex: 1;
+}
+
+.app-header__titles h1 {
+  margin: 0.1rem 0;
+  font-size: 1.5rem;
+}
+
+.app-header__eyebrow {
+  font-size: 0.95rem;
+  color: var(--texto-secundario);
+}
+
+.app-header__subtitle {
+  font-size: 1rem;
+  color: var(--texto-secundario);
+}
+
+.app-header__user {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 960px;
+  margin: 0.75rem auto 0;
+  font-size: 0.95rem;
+}
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.page--centrado {
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1.25rem 1.5rem;
+  box-shadow: var(--sombra);
+}
+
+.card h2 {
+  margin-top: 0;
+}
+
+.card--login {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: var(--texto-secundario);
+  margin-bottom: 0.75rem;
+}
+
+input,
+select {
+  font: inherit;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--texto);
+}
+
+.campo-archivo input {
+  padding: 0.4rem;
+}
+
+.btn {
+  font: inherit;
+  padding: 0.6rem 1.1rem;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn--primario {
+  background: var(--azul);
+  color: white;
+}
+
+.btn--secondary {
+  background: var(--surface-2);
+  color: var(--texto);
+  border: 1px solid var(--border);
+}
+
+.btn--peligro {
+  color: var(--rojo);
+  border-color: color-mix(in srgb, var(--rojo) 40%, var(--border));
+  padding: 0.35rem 0.7rem;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.btn--peligro:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--rojo) 12%, transparent);
+}
+
+.btn--chico {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  margin-top: 0.4rem;
+}
+
+.btn-quitar {
+  border: none;
+  background: transparent;
+  color: var(--rojo);
+  cursor: pointer;
+  font-size: 1rem;
+  margin-left: 0.5rem;
+}
+
+.opciones-corte {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.chip {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.45rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.chip--activo {
+  border-color: var(--azul);
+  background: color-mix(in srgb, var(--azul) 12%, transparent);
+}
+
+.panel-pdf {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.panel-pdf__titulo {
+  margin-bottom: 0.75rem;
+}
+
+.mensaje {
+  padding: 0.6rem 0.9rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.mensaje--error {
+  background: color-mix(in srgb, var(--rojo) 12%, transparent);
+  color: var(--rojo);
+}
+
+.mensaje--exito {
+  background: color-mix(in srgb, var(--verde) 14%, transparent);
+  color: var(--verde);
+}
+
+.mensaje--warning {
+  background: color-mix(in srgb, var(--naranja) 14%, transparent);
+  color: var(--naranja);
+}
+
+.mensaje--info {
+  background: color-mix(in srgb, var(--azul) 10%, transparent);
+  color: var(--texto);
+}
+
+.texto-ayuda {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.kpi__valor {
+  font-size: 1.8rem;
+  font-weight: 700;
+}
+
+.kpi__etiqueta {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 1.5rem;
+  margin: 1rem 0;
+}
+
+.tabla-scroll {
+  overflow-x: auto;
+}
+
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.tabla th,
+.tabla td {
+  padding: 0.5rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tabla thead {
+  background: var(--surface-2);
+}
+
+.tabla tbody tr:hover {
+  background: var(--surface-2);
+  cursor: default;
+}
+
+.fila-seleccionada {
+  background: color-mix(in srgb, var(--azul) 10%, transparent);
+}
+
+.resumen-materia {
+  border-top: 1px solid var(--border);
+  padding-top: 1rem;
+  margin-top: 1rem;
+}
+
+.detalle-interpretacion {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.detalle-interpretacion summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.grafico-tooltip {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  box-shadow: var(--sombra);
+  font-size: 0.85rem;
+}
+
+.grafico-tooltip strong {
+  display: block;
+  margin-bottom: 0.25rem;
+  color: var(--texto);
+}
+
+.totales-generales {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.proyeccion {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.proyeccion-item {
+  flex: 1;
+  min-width: 180px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  text-align: center;
+}
+
+.proyeccion-item__valor {
+  font-size: 1.6rem;
+  font-weight: 700;
+  display: block;
+}
+
+.proyeccion-item__etiqueta {
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.proyeccion-item--ok {
+  border-color: color-mix(in srgb, #0ca30c 40%, var(--border));
+}
+.proyeccion-item--ok .proyeccion-item__valor {
+  color: #0ca30c;
+}
+
+.proyeccion-item--riesgo {
+  border-color: color-mix(in srgb, var(--naranja) 40%, var(--border));
+}
+.proyeccion-item--riesgo .proyeccion-item__valor {
+  color: var(--naranja);
+}
+
+.proyeccion-item--mal {
+  border-color: color-mix(in srgb, var(--rojo) 40%, var(--border));
+}
+.proyeccion-item--mal .proyeccion-item__valor {
+  color: var(--rojo);
+}
+
+.formulario-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+  align-items: end;
+  margin-top: 0.75rem;
+}

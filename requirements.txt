@@ -1,0 +1,25 @@
+streamlit
+pdfplumber
+openpyxl
+pandas
+plotly
+pywin32; sys_platform == "win32"
+
+# Base de datos y autenticacion
+sqlalchemy
+psycopg[binary]
+bcrypt
+python-dotenv
+
+# Generacion de informes PDF
+reportlab
+
+# API backend (FastAPI)
+fastapi
+uvicorn[standard]
+python-jose[cryptography]
+python-multipart
+pydantic-settings
+
+# Pruebas
+httpx

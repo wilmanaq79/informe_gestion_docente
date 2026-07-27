@@ -236,3 +236,11 @@ export interface Entrega {
   actualizado_en: string;
   documentos: DocumentoEntrega[];
 }
+
+export interface Notificacion {
+  id: number;
+  mensaje: string;
+  entrega_id: number | null;
+  leida: boolean;
+  creado_en: string;
+}

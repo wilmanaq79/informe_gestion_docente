@@ -282,3 +282,23 @@ class DocumentoEntrega(Base):
     subido_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     entrega: Mapped["Entrega"] = relationship(back_populates="documentos")
+
+
+# --- Notificaciones dentro de la aplicacion ----------------------------------
+
+class Notificacion(Base):
+    """Aviso dentro de la app (independiente del correo) para que un
+    usuario se entere de un evento que le corresponde -- p.ej. que su
+    entrega fue aprobada/rechazada, o que hay una entrega para revisar.
+    Se muestra en la campanita de notificaciones de los 4 roles."""
+
+    __tablename__ = "notificaciones"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False)
+    mensaje: Mapped[str] = mapped_column(String(500), nullable=False)
+    entrega_id: Mapped[int | None] = mapped_column(ForeignKey("entregas.id", ondelete="SET NULL"))
+    leida: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    usuario: Mapped["Usuario"] = relationship()

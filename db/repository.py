@@ -15,6 +15,7 @@ from db.models import (
     EventoCalendario,
     InformeCorte,
     NotaEstudiante,
+    Notificacion,
     PeriodoAcademico,
     Rol,
     Usuario,
@@ -654,3 +655,68 @@ def emails_personal_revisor(session) -> list[str]:
         )
     )
     return [e for e in session.scalars(stmt) if e]
+
+
+def ids_personal_revisor(session) -> list[int]:
+    """Ids de todos los Directores, Secretarios Academicos y Secretarias
+    del Programa activos -- para crear sus notificaciones dentro de la
+    app (independiente de si tienen correo o no)."""
+    stmt = (
+        select(Usuario.id)
+        .join(Rol, Usuario.rol_id == Rol.id)
+        .where(Rol.nombre.in_(("director", "secretario", "secretaria_programa")), Usuario.activo.is_(True))
+    )
+    return list(session.scalars(stmt))
+
+
+# --- Notificaciones dentro de la aplicacion -----------------------------------
+
+def crear_notificacion(session, usuario_id: int, mensaje: str, entrega_id: int | None = None) -> Notificacion:
+    notificacion = Notificacion(usuario_id=usuario_id, mensaje=mensaje, entrega_id=entrega_id)
+    session.add(notificacion)
+    session.commit()
+    session.refresh(notificacion)
+    return notificacion
+
+
+def notificar_usuarios(session, usuario_ids: list[int], mensaje: str, entrega_id: int | None = None) -> None:
+    """Crea una notificacion identica para cada usuario de la lista
+    (p.ej. Director + Secretario + Secretaria + el docente, cuando se
+    aprueba/rechaza una entrega)."""
+    for usuario_id in set(usuario_ids):
+        session.add(Notificacion(usuario_id=usuario_id, mensaje=mensaje, entrega_id=entrega_id))
+    session.commit()
+
+
+def listar_notificaciones(session, usuario_id: int, solo_no_leidas: bool = False, limite: int = 50) -> list[Notificacion]:
+    stmt = select(Notificacion).where(Notificacion.usuario_id == usuario_id)
+    if solo_no_leidas:
+        stmt = stmt.where(Notificacion.leida.is_(False))
+    stmt = stmt.order_by(Notificacion.creado_en.desc()).limit(limite)
+    return list(session.scalars(stmt))
+
+
+def contar_notificaciones_no_leidas(session, usuario_id: int) -> int:
+    return session.scalar(
+        select(func.count())
+        .select_from(Notificacion)
+        .where(Notificacion.usuario_id == usuario_id, Notificacion.leida.is_(False))
+    )
+
+
+def marcar_notificacion_leida(session, notificacion_id: int, usuario_id: int) -> bool:
+    """usuario_id se exige para que nadie marque como leida una
+    notificacion ajena."""
+    notificacion = session.get(Notificacion, notificacion_id)
+    if notificacion is None or notificacion.usuario_id != usuario_id:
+        return False
+    notificacion.leida = True
+    session.commit()
+    return True
+
+
+def marcar_todas_notificaciones_leidas(session, usuario_id: int) -> None:
+    session.query(Notificacion).filter(
+        Notificacion.usuario_id == usuario_id, Notificacion.leida.is_(False)
+    ).update({Notificacion.leida: True})
+    session.commit()

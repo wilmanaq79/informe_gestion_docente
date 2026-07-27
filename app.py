@@ -12,7 +12,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from vistas import calendario, direccion, docente, entregas, login
+from vistas import calendario, direccion, docente, entregas, login, notificaciones
 
 RAIZ = Path(__file__).resolve().parent
 ESCUDO_UNPA = RAIZ / "assets" / "escudo_unpa.jpg"
@@ -64,6 +64,8 @@ if "usuario_id" not in st.session_state:
 else:
     mostrar_barra_usuario()
     rol = st.session_state["usuario_rol"]
+    notificaciones.render(st.session_state["usuario_id"])
+    st.divider()
 
     if rol == "docente":
         docente.render(st.session_state["usuario_id"])

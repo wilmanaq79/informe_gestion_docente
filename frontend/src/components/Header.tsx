@@ -1,4 +1,5 @@
 import { useAuth } from "../context/AuthContext";
+import NotificacionesBell from "./NotificacionesBell";
 
 export default function Header() {
   const { usuario, logout } = useAuth();
@@ -20,6 +21,7 @@ export default function Header() {
           <span>
             👋 <strong>{usuario.nombre_completo}</strong> · rol: <em>{usuario.rol}</em>
           </span>
+          <NotificacionesBell />
           <button onClick={logout} className="btn btn--secondary">
             Cerrar sesión
           </button>

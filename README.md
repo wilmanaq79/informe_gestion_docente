@@ -130,7 +130,7 @@ pip install -r requirements.txt
 ```bash
 streamlit run app.py
 ```
-
+#----
 **Rol docente:**
 1. Elige el corte (Corte 1, Corte 2 o Corte 3/Final).
 2. Sube la plantilla Excel y uno o varios PDF de notas (uno por materia).

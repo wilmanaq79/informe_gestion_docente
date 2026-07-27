@@ -1,0 +1,60 @@
+"""Almacenamiento en disco de los documentos que los docentes entregan
+(listas de asistencia, notas firmadas, informe de gestión docente, etc.).
+Los archivos NUNCA se versionan (ver .gitignore) -- solo su ruta y
+metadatos quedan en la base de datos (db.models.DocumentoEntrega)."""
+import re
+import unicodedata
+import uuid
+from datetime import datetime
+from pathlib import Path
+
+RAIZ = Path(__file__).resolve().parent.parent
+DIRECTORIO_BASE = RAIZ / "entregas_docentes"
+
+
+def _sanitizar(nombre: str) -> str:
+    """Nombre de archivo seguro para el sistema de archivos: sin acentos,
+    sin espacios ni caracteres especiales, y con un largo razonable."""
+    sin_acentos = unicodedata.normalize("NFKD", nombre).encode("ascii", "ignore").decode("ascii")
+    limpio = re.sub(r"[^A-Za-z0-9._-]+", "_", sin_acentos).strip("_")
+    return limpio[:120] or "archivo"
+
+
+def guardar_archivo_entrega(
+    periodo_nombre: str, docente_id: int, corte_numero: int, tipo_documento: str, nombre_original: str, contenido: bytes
+) -> tuple[str, int]:
+    """Guarda 'contenido' en disco bajo una ruta organizada por
+    periodo/docente/corte y devuelve (ruta_relativa_al_proyecto,
+    tamaño_en_bytes). La ruta relativa es lo que se guarda en
+    DocumentoEntrega.ruta_archivo."""
+    carpeta = DIRECTORIO_BASE / periodo_nombre / f"docente_{docente_id}" / f"corte_{corte_numero}"
+    carpeta.mkdir(parents=True, exist_ok=True)
+
+    marca_tiempo = datetime.now().strftime("%Y%m%d%H%M%S")
+    sufijo = uuid.uuid4().hex[:8]
+    nombre_archivo = f"{tipo_documento}_{marca_tiempo}_{sufijo}_{_sanitizar(nombre_original)}"
+
+    ruta_absoluta = carpeta / nombre_archivo
+    ruta_absoluta.write_bytes(contenido)
+
+    ruta_relativa = ruta_absoluta.relative_to(RAIZ).as_posix()
+    return ruta_relativa, len(contenido)
+
+
+def ruta_absoluta_segura(ruta_relativa: str) -> Path | None:
+    """Resuelve una ruta guardada en BD a una ruta absoluta, verificando
+    que quede dentro de DIRECTORIO_BASE (nunca confiar en una ruta a
+    ciegas, aunque venga de nuestra propia BD). Devuelve None si el
+    archivo no existe o la ruta intenta salir del directorio base."""
+    candidato = (RAIZ / ruta_relativa).resolve()
+    try:
+        candidato.relative_to(DIRECTORIO_BASE.resolve())
+    except ValueError:
+        return None
+    return candidato if candidato.is_file() else None
+
+
+def eliminar_archivo(ruta_relativa: str) -> None:
+    ruta = ruta_absoluta_segura(ruta_relativa)
+    if ruta is not None:
+        ruta.unlink(missing_ok=True)

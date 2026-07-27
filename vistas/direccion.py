@@ -23,7 +23,7 @@ from db.repository import (
     listar_usuarios,
     resolver_periodo_ids,
 )
-from vistas import calendario
+from vistas import calendario, entregas
 
 
 def _seccion_periodo_actual(session):
@@ -208,7 +208,7 @@ def render():
             col3, col4 = st.columns(2)
             username = col3.text_input("Usuario (para iniciar sesión)")
             password = col4.text_input("Contraseña temporal", type="password")
-            rol_sel = st.selectbox("Rol", ["docente", "director", "secretario"])
+            rol_sel = st.selectbox("Rol", ["docente", "director", "secretario", "secretaria_programa"])
             crear = st.form_submit_button("Crear usuario", use_container_width=True)
 
         if crear:
@@ -247,3 +247,6 @@ def render():
             )
         finally:
             session.close()
+
+    st.divider()
+    entregas.render(st.session_state["usuario_id"], st.session_state["usuario_rol"])

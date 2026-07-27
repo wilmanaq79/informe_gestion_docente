@@ -21,7 +21,10 @@ def _out(p) -> PeriodoOut:
 
 
 @router.get("", response_model=list[PeriodoOut])
-def listar(db: Session = Depends(get_db), _usuario=Depends(requiere_roles("docente", "director", "secretario"))):
+def listar(
+    db: Session = Depends(get_db),
+    _usuario=Depends(requiere_roles("docente", "director", "secretario", "secretaria_programa")),
+):
     return [_out(p) for p in listar_periodos(db)]
 
 

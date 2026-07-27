@@ -10,7 +10,7 @@ Documentación interactiva: http://localhost:8000/docs
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api.routers import auth, calendario, dashboard, docentes, informes, periodos, reportes, usuarios
+from backend.api.routers import auth, calendario, dashboard, docentes, entregas, informes, periodos, reportes, usuarios
 from backend.core.config import settings
 
 app = FastAPI(
@@ -38,6 +38,7 @@ app.include_router(reportes.router)
 app.include_router(dashboard.router)
 app.include_router(periodos.router)
 app.include_router(calendario.router)
+app.include_router(entregas.router)
 
 
 @app.get("/api/health", tags=["health"])

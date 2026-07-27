@@ -12,7 +12,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from vistas import direccion, docente, login
+from vistas import calendario, direccion, docente, entregas, login
 
 RAIZ = Path(__file__).resolve().parent
 ESCUDO_UNPA = RAIZ / "assets" / "escudo_unpa.jpg"
@@ -69,5 +69,14 @@ else:
         docente.render(st.session_state["usuario_id"])
     elif rol in ("director", "secretario"):
         direccion.render()
+    elif rol == "secretaria_programa":
+        st.caption(
+            "Revisa las entregas documentales de los docentes (listas de asistencia, notas firmadas, "
+            "informe de gestión docente) y aprueba o rechaza cada una. Al aprobar, se notifica por correo "
+            "al Director, al Secretario Académico, a la Secretaria del Programa y al docente."
+        )
+        calendario.render(puede_editar=False)
+        st.divider()
+        entregas.render(st.session_state["usuario_id"], rol)
     else:
         st.error(f"Rol desconocido: {rol}")

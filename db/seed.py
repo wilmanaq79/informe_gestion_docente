@@ -18,7 +18,7 @@ from db.database import engine, get_session
 from db.models import Base, Corte, PeriodoAcademico, Rol, Usuario
 from db.repository import parsear_periodo
 
-ROLES = ["docente", "director", "secretario"]
+ROLES = ["docente", "director", "secretario", "secretaria_programa"]
 CORTES = [
     (1, "Corte 1", 0.30),
     (2, "Corte 2", 0.30),

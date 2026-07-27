@@ -4,7 +4,7 @@ Gestion y Autoevaluacion Docente -- Programa de Ingenieria de Sistemas,
 Universidad del Pacifico.
 
 Tablas de referencia/catalogo (no cambian con el uso diario):
-    roles, cortes, periodos_academicos
+    roles, cortes, periodos_academicos, eventos_calendario
 
 Tablas operativas:
     usuarios              -- los 27 docentes + director + secretario
@@ -28,10 +28,11 @@ Diagrama entidad-relacion:
                                         *
                               notas_estudiantes
 """
-from datetime import datetime
+from datetime import date, datetime
 
 from sqlalchemy import (
     Boolean,
+    Date,
     DateTime,
     ForeignKey,
     Numeric,
@@ -66,10 +67,24 @@ class Corte(Base):
 
 
 class PeriodoAcademico(Base):
+    """Un semestre academico concreto ('2026-1'). anio/semestre quedan
+    como columnas propias (no solo derivadas de 'nombre') para poder
+    filtrar y agrupar informes por Año, por Semestre y por Corte en los
+    reportes consolidados del Director y el Secretario Academico."""
+
     __tablename__ = "periodos_academicos"
+    __table_args__ = (
+        UniqueConstraint("anio", "semestre", name="uq_periodo_anio_semestre"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     nombre: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)  # '2026-1'
+    anio: Mapped[int] = mapped_column(nullable=False)
+    semestre: Mapped[int] = mapped_column(nullable=False)  # 1 o 2
+    activo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    """Periodo 'actual': donde el Director/Secretario activa la carga de
+    notas de los docentes. Solo uno puede estar activo a la vez (lo
+    garantiza db.repository.activar_periodo, no una constraint de BD)."""
 
 
 # --- Usuarios y asignaciones -------------------------------------------------
@@ -171,3 +186,23 @@ class NotaEstudiante(Base):
     estado: Mapped[str] = mapped_column(String(30), nullable=False)
 
     informe: Mapped["InformeCorte"] = relationship(back_populates="notas")
+
+
+# --- Calendario academico ----------------------------------------------------
+
+class EventoCalendario(Base):
+    """Una fila del calendario academico oficial de un periodo (Inicio de
+    clases, parciales, limites de reporte de notas por corte, etc.). Solo
+    el Director y el Secretario Academico pueden crear/editar/borrar estos
+    eventos; los docentes solo los consultan."""
+
+    __tablename__ = "eventos_calendario"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    periodo_id: Mapped[int] = mapped_column(ForeignKey("periodos_academicos.id"), nullable=False)
+    actividad: Mapped[str] = mapped_column(String(200), nullable=False)
+    fecha_inicio: Mapped[date] = mapped_column(Date, nullable=False)
+    fecha_fin: Mapped[date | None] = mapped_column(Date)  # None si es una fecha unica (no un rango)
+    orden: Mapped[int] = mapped_column(default=0)  # para respetar el orden del calendario oficial
+
+    periodo: Mapped["PeriodoAcademico"] = relationship()

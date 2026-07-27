@@ -15,16 +15,26 @@ const ETIQUETA_ESTADO: Record<string, { texto: string; clase: string }> = {
   reprobado: { texto: "Reprobaron", clase: "proyeccion-item--mal" },
 };
 
-export default function DashboardInstitucional() {
+interface Props {
+  anio: number | null;
+  semestre: number | null;
+  corte: number | null;
+}
+
+export default function DashboardInstitucional({ anio, semestre, corte }: Props) {
   const [datos, setDatos] = useState<Dashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (anio == null) return;
+    const params: Record<string, number> = { anio };
+    if (semestre != null) params.semestre = semestre;
+    if (corte != null) params.corte = corte;
     api
-      .get<Dashboard>("/dashboard")
+      .get<Dashboard>("/dashboard", { params })
       .then(({ data }) => setDatos(data))
       .catch((err) => setError(mensajeError(err, "No se pudo cargar el dashboard institucional.")));
-  }, []);
+  }, [anio, semestre, corte]);
 
   if (error) {
     return (
@@ -47,9 +57,11 @@ export default function DashboardInstitucional() {
       <section className="card">
         <h2>📊 Dashboard institucional</h2>
         <p className="mensaje mensaje--info">
-          Todavía no hay informes cargados por ningún docente. En cuanto empiecen a procesar sus notas, aquí
-          verás cómo evolucionan los estudiantes y las asignaturas de todo el programa.
+          Todavía no hay informes cargados por ningún docente para el Año/Semestre/Corte elegido. En cuanto
+          empiecen a procesar sus notas, aquí verás cómo evolucionan los estudiantes y las asignaturas de todo
+          el programa.
         </p>
+        <p className="texto-ayuda">Generado: {datos.generado_en}</p>
       </section>
     );
   }
@@ -62,6 +74,8 @@ export default function DashboardInstitucional() {
       <p className="texto-ayuda">
         Cómo va evolucionando el rendimiento de los estudiantes y las asignaturas en todo el Programa de
         Ingeniería de Sistemas, para apoyar decisiones y estrategias de mejora.
+        {" "}
+        <strong>Generado: {datos.generado_en}</strong>
       </p>
 
       <div className="totales-generales">
@@ -90,7 +104,7 @@ export default function DashboardInstitucional() {
 
       <div className="grid-2">
         <div>
-          <h4>Promedio por asignatura (corte más reciente de cada una)</h4>
+          <h4>Promedio por asignatura ({corte != null ? `Corte ${corte}` : "corte más reciente de cada una"})</h4>
           <GraficoPromedioPorMateria porMateria={datos.por_materia} />
         </div>
         <div>

@@ -48,3 +48,4 @@ class DashboardOut(BaseModel):
     por_corte: list[CorteDashboardOut]
     por_docente: list[DocenteDashboardOut]
     conteo_estado_actual: dict[str, int]
+    generado_en: str

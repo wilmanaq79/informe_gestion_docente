@@ -1,28 +1,109 @@
 """Vista del Director del Programa y del Secretario Academico: resumen de
 los docentes, detalle por materia/corte, generacion del informe PDF por
 docente, y administracion de usuarios (altas de las cuentas de los 27
-docentes, el director y el secretario)."""
+docentes, el director y el secretario).
+
+Filtrable por Año, Semestre (cada Año tiene 2 semestres) y Corte (cada
+semestre tiene 3 cortes) -- igual que en el frontend React."""
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
-from agente_notas.reporte_pdf import generar_reporte_docente
+from agente_notas.reporte_pdf import describir_alcance, generar_reporte_docente
 from db.auth import hash_password
 from db.database import get_session
-from db.repository import crear_usuario, listar_docentes, listar_roles, listar_usuarios
+from db.repository import (
+    activar_periodo,
+    crear_o_obtener_periodo,
+    crear_usuario,
+    listar_docentes,
+    listar_periodos,
+    listar_roles,
+    listar_usuarios,
+    resolver_periodo_ids,
+)
+from vistas import calendario
 
-PERIODO_ACTUAL = "2026-1"
+
+def _seccion_periodo_actual(session):
+    """Periodo 'actual' del sistema: donde caen las notas que los
+    docentes cargan hoy. Solo Director/Secretario pueden crearlo/activarlo."""
+    st.subheader("🟢 Periodo actual del sistema")
+    st.caption(
+        "Es el periodo donde caen las notas que los docentes cargan hoy. Al iniciar un semestre nuevo, "
+        "créalo (si no existe) y actívalo aquí."
+    )
+    periodos = listar_periodos(session)
+    filas = [{"Periodo": p.nombre, "Estado": "🟢 Activo" if p.activo else "—", "id": p.id} for p in periodos]
+    for fila in filas:
+        col1, col2, col3 = st.columns([2, 2, 3])
+        col1.write(fila["Periodo"])
+        col2.write(fila["Estado"])
+        if fila["Estado"] == "—":
+            if col3.button("Activar como periodo actual", key=f"activar_periodo_{fila['id']}"):
+                activar_periodo(session, fila["id"])
+                st.rerun()
+
+    with st.expander("➕ Crear un nuevo periodo (p. ej. el próximo semestre)"):
+        with st.form("crear_periodo_form"):
+            col1, col2 = st.columns(2)
+            anio_nuevo = col1.number_input("Año", min_value=2000, max_value=2100, value=2026, step=1)
+            semestre_nuevo = col2.selectbox("Semestre", [1, 2])
+            crear = st.form_submit_button("Crear periodo", use_container_width=True)
+        if crear:
+            crear_o_obtener_periodo(session, int(anio_nuevo), int(semestre_nuevo))
+            st.success(f"Periodo {int(anio_nuevo)}-{semestre_nuevo} creado (o ya existía).")
+            st.rerun()
+
+
+def _selector_alcance(session):
+    """Selectbox de Año / Semestre / Corte. Devuelve (anio, semestre,
+    corte, periodo_ids, etiqueta) -- semestre y corte son None si el
+    usuario elige 'ambos'/'más reciente'."""
+    periodos = listar_periodos(session)
+    if not periodos:
+        st.warning("No hay periodos académicos registrados todavía. Ejecuta 'python -m db.seed'.")
+        return None, None, None, [], ""
+
+    anios = sorted({p.anio for p in periodos}, reverse=True)
+    col1, col2, col3 = st.columns(3)
+    anio_sel = col1.selectbox("Año", anios, key="direccion_anio_sel")
+
+    # Cada Año académico tiene siempre 2 semestres (así no haya informes
+    # cargados todavía para uno de ellos, p.ej. el semestre que aún no arranca).
+    opciones_semestre = ["Todo el año (ambos semestres)", "Semestre 1", "Semestre 2"]
+    semestre_txt = col2.selectbox("Semestre", opciones_semestre, key="direccion_semestre_sel")
+    semestre_sel = None if semestre_txt.startswith("Todo el año") else int(semestre_txt.split()[-1])
+
+    opciones_corte = ["Más reciente cargado", "Corte 1", "Corte 2", "Corte 3 / Final"]
+    corte_txt = col3.selectbox("Corte", opciones_corte, key="direccion_corte_sel")
+    corte_sel = {"Más reciente cargado": None, "Corte 1": 1, "Corte 2": 2, "Corte 3 / Final": 3}[corte_txt]
+
+    periodo_ids = resolver_periodo_ids(session, anio_sel, semestre_sel)
+    etiqueta = describir_alcance(anio_sel, semestre_sel, corte_sel)
+    return anio_sel, semestre_sel, corte_sel, periodo_ids, etiqueta
 
 
 def render():
     st.caption(
-        "Resumen de todos los docentes del Programa de Ingeniería de Sistemas para el "
-        f"periodo **{PERIODO_ACTUAL}**, con acceso al detalle e informe PDF de cada uno."
+        "Resumen de todos los docentes del Programa de Ingeniería de Sistemas, con acceso al detalle e "
+        "informe PDF de cada uno."
     )
 
     session = get_session()
     try:
+        st.subheader("🗓️ Año · Semestre · Corte")
+        st.caption(
+            "Elige el alcance de los informes. Cada Año tiene 2 semestres y cada semestre tiene 3 cortes."
+        )
+        anio_sel, semestre_sel, corte_sel, periodo_ids, etiqueta_alcance = _selector_alcance(session)
+
+        _seccion_periodo_actual(session)
+        st.divider()
+        calendario.render(puede_editar=True)
+        st.divider()
+
         docentes = listar_docentes(session)
 
         if not docentes:
@@ -30,19 +111,26 @@ def render():
                 "Todavía no hay docentes registrados. Usa 'Administración de usuarios' "
                 "más abajo para crear sus cuentas."
             )
+        elif not periodo_ids:
+            pass
         else:
             filas_resumen = []
             for d in docentes:
-                asignaciones_periodo = [a for a in d.asignaciones if a.periodo.nombre == PERIODO_ACTUAL]
+                asignaciones_periodo = [a for a in d.asignaciones if a.periodo_id in periodo_ids]
                 total_informes = sum(len(a.informes) for a in asignaciones_periodo)
-                ultimo_corte = max(
-                    (informe.corte.numero for a in asignaciones_periodo for informe in a.informes),
-                    default=None,
-                )
+                if corte_sel is not None:
+                    ultimo_corte = corte_sel if any(
+                        i.corte.numero == corte_sel for a in asignaciones_periodo for i in a.informes
+                    ) else None
+                else:
+                    ultimo_corte = max(
+                        (informe.corte.numero for a in asignaciones_periodo for informe in a.informes),
+                        default=None,
+                    )
                 filas_resumen.append(
                     {
                         "Docente": d.nombre_completo,
-                        "Materias este periodo": len(asignaciones_periodo),
+                        "Materias este alcance": len(asignaciones_periodo),
                         "Informes cargados": total_informes,
                         "Último corte reportado": "—" if ultimo_corte is None else f"Corte {ultimo_corte}" if ultimo_corte < 3 else "Corte 3 / Final",
                     }
@@ -54,18 +142,25 @@ def render():
                 "Selecciona un docente", [d.nombre_completo for d in docentes], key="direccion_docente_sel"
             )
             docente_sel = next(d for d in docentes if d.nombre_completo == docente_sel_nombre)
-            asignaciones_periodo = [a for a in docente_sel.asignaciones if a.periodo.nombre == PERIODO_ACTUAL]
+            asignaciones_periodo = [a for a in docente_sel.asignaciones if a.periodo_id in periodo_ids]
 
             if not asignaciones_periodo:
-                st.warning(f"{docente_sel.nombre_completo} no tiene materias cargadas en {PERIODO_ACTUAL}.")
+                st.warning(f"{docente_sel.nombre_completo} no tiene materias cargadas para {etiqueta_alcance}.")
             else:
                 for a in asignaciones_periodo:
                     with st.expander(f"{a.asignatura}" + (f" — Grupo {a.grupo}" if a.grupo else ""), expanded=False):
-                        if not a.informes:
-                            st.write("Sin informes cargados todavía.")
+                        informes = sorted(a.informes, key=lambda i: i.corte.numero)
+                        if corte_sel is not None:
+                            informes = [i for i in informes if i.corte.numero == corte_sel]
+                        if not informes:
+                            st.write(
+                                f"Sin informe cargado para el Corte {corte_sel}."
+                                if corte_sel is not None
+                                else "Sin informes cargados todavía."
+                            )
                             continue
                         filas = []
-                        for informe in sorted(a.informes, key=lambda i: i.corte.numero):
+                        for informe in informes:
                             filas.append(
                                 {
                                     "Corte": informe.corte.nombre,
@@ -82,12 +177,16 @@ def render():
                 if st.button("📄 Generar informe PDF de este docente", use_container_width=True):
                     out_path = Path.cwd() / f"__informe_temp_docente_{docente_sel.id}.pdf"
                     try:
-                        generar_reporte_docente(docente_sel, out_path, PERIODO_ACTUAL)
+                        generar_reporte_docente(
+                            docente_sel, out_path, etiqueta_alcance, periodo_ids=periodo_ids, corte_filtro=corte_sel
+                        )
                         with open(out_path, "rb") as f:
                             st.download_button(
                                 "⬇️ Descargar informe PDF",
                                 data=f.read(),
-                                file_name=f"Informe_{docente_sel.nombre_completo.replace(' ', '_')}_{PERIODO_ACTUAL}.pdf",
+                                file_name=f"Informe_{docente_sel.nombre_completo.replace(' ', '_')}_{anio_sel}"
+                                + (f"-{semestre_sel}" if semestre_sel else "")
+                                + ".pdf",
                                 mime="application/pdf",
                                 use_container_width=True,
                             )

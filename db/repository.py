@@ -9,6 +9,7 @@ from sqlalchemy.orm import selectinload
 from db.models import (
     AsignacionAcademica,
     Corte,
+    EventoCalendario,
     InformeCorte,
     NotaEstudiante,
     PeriodoAcademico,
@@ -17,10 +18,23 @@ from db.models import (
 )
 
 
+def parsear_periodo(nombre: str) -> tuple[int, int]:
+    """'2026-1' -> (2026, 1). Cada año academico tiene 2 semestres."""
+    try:
+        anio_txt, semestre_txt = nombre.split("-")
+        anio, semestre = int(anio_txt), int(semestre_txt)
+    except (ValueError, AttributeError) as exc:
+        raise ValueError(f"Nombre de periodo invalido: {nombre!r}. Formato esperado 'AAAA-S'.") from exc
+    if semestre not in (1, 2):
+        raise ValueError(f"Semestre invalido en {nombre!r}: debe ser 1 o 2.")
+    return anio, semestre
+
+
 def obtener_o_crear_periodo(session, nombre: str) -> PeriodoAcademico:
     periodo = session.scalar(select(PeriodoAcademico).where(PeriodoAcademico.nombre == nombre))
     if periodo is None:
-        periodo = PeriodoAcademico(nombre=nombre)
+        anio, semestre = parsear_periodo(nombre)
+        periodo = PeriodoAcademico(nombre=nombre, anio=anio, semestre=semestre)
         session.add(periodo)
         session.commit()
     return periodo
@@ -28,6 +42,57 @@ def obtener_o_crear_periodo(session, nombre: str) -> PeriodoAcademico:
 
 def periodo_mas_reciente(session) -> PeriodoAcademico | None:
     return session.scalar(select(PeriodoAcademico).order_by(PeriodoAcademico.id.desc()))
+
+
+def listar_periodos(session) -> list[PeriodoAcademico]:
+    """Todos los periodos academicos registrados, del mas reciente al mas
+    antiguo -- para poblar los selectores de Año/Semestre del Director y
+    el Secretario Academico."""
+    return list(
+        session.scalars(
+            select(PeriodoAcademico).order_by(PeriodoAcademico.anio.desc(), PeriodoAcademico.semestre.desc())
+        )
+    )
+
+
+def resolver_periodo_ids(session, anio: int, semestre: int | None = None) -> list[int]:
+    """IDs de PeriodoAcademico para un Año (ambos semestres) o para un
+    Semestre especifico dentro de ese Año."""
+    stmt = select(PeriodoAcademico.id).where(PeriodoAcademico.anio == anio)
+    if semestre is not None:
+        stmt = stmt.where(PeriodoAcademico.semestre == semestre)
+    return list(session.scalars(stmt))
+
+
+def crear_o_obtener_periodo(session, anio: int, semestre: int) -> PeriodoAcademico:
+    """Crea (o devuelve si ya existe) el periodo de un Año/Semestre.
+    Usado por el Director/Secretario para dar de alta el siguiente
+    semestre (p.ej. '2026-2') antes de activarlo."""
+    if semestre not in (1, 2):
+        raise ValueError("El semestre debe ser 1 o 2.")
+    nombre = f"{anio}-{semestre}"
+    return obtener_o_crear_periodo(session, nombre)
+
+
+def periodo_activo(session) -> PeriodoAcademico | None:
+    """El periodo marcado como 'actual' -- donde se guardan los informes
+    que los docentes cargan hoy. Puede no haber ninguno (recien sembrada
+    la base de datos, antes de que el Director/Secretario active uno)."""
+    return session.scalar(select(PeriodoAcademico).where(PeriodoAcademico.activo.is_(True)))
+
+
+def activar_periodo(session, periodo_id: int) -> PeriodoAcademico:
+    """Marca este periodo como el 'actual' (donde caen las nuevas cargas
+    de notas de los docentes) y desactiva cualquier otro. Solo puede
+    haber un periodo activo a la vez."""
+    periodo = session.get(PeriodoAcademico, periodo_id)
+    if periodo is None:
+        raise ValueError(f"Periodo {periodo_id} no existe.")
+    session.query(PeriodoAcademico).update({PeriodoAcademico.activo: False})
+    periodo.activo = True
+    session.commit()
+    session.refresh(periodo)
+    return periodo
 
 
 def obtener_o_crear_asignacion(
@@ -163,19 +228,28 @@ def eliminar_informe_corte(session, informe_id: int) -> bool:
     return True
 
 
-def resumen_dashboard_institucional(session, periodo_nombre: str) -> dict:
-    """Agrega los datos de TODAS las asignaciones del periodo (todos los
-    docentes, todas las materias) para el dashboard del Director y el
-    Secretario Academico:
+def resumen_dashboard_institucional(
+    session, anio: int, semestre: int | None = None, corte: int | None = None
+) -> dict:
+    """Agrega los datos de TODAS las asignaciones del alcance elegido (todos
+    los docentes, todas las materias) para el dashboard y los informes
+    consolidados del Director y el Secretario Academico:
+      - anio: obligatorio. Si semestre es None, agrega los DOS semestres
+        de ese año; si se indica, se limita a ese semestre.
+      - corte: si es None, usa el corte mas reciente cargado de cada
+        asignacion (comportamiento historico). Si se indica (1, 2 o 3),
+        usa exclusivamente el informe de ese corte -- las asignaturas que
+        aun no tengan ese corte cargado no aparecen en 'por_materia'.
+
       - kpis institucionales
-      - promedio/aprobacion por materia (con el corte mas reciente de cada una)
+      - promedio/aprobacion por materia (segun el corte elegido)
       - evolucion por corte (1, 2, 3) sumando todas las materias que ya
-        tengan informe en ese corte
+        tengan informe en ese corte (no se ve afectada por 'corte', para
+        poder ver siempre la evolucion completa del alcance)
       - comparacion por docente
-      - distribucion de riesgo (estado de cada estudiante, corte mas
-        reciente de cada materia)
+      - distribucion de riesgo (estado de cada estudiante, segun el
+        corte elegido)
     """
-    periodo = session.scalar(select(PeriodoAcademico).where(PeriodoAcademico.nombre == periodo_nombre))
     vacio = {
         "kpis": {
             "total_docentes": 0,
@@ -190,14 +264,16 @@ def resumen_dashboard_institucional(session, periodo_nombre: str) -> dict:
         "por_corte": [],
         "por_docente": [],
         "conteo_estado_actual": {},
+        "generado_en": datetime.now().strftime("%d/%m/%Y %H:%M"),
     }
-    if periodo is None:
+    periodo_ids = resolver_periodo_ids(session, anio, semestre)
+    if not periodo_ids:
         return vacio
 
     asignaciones = list(
         session.scalars(
             select(AsignacionAcademica)
-            .where(AsignacionAcademica.periodo_id == periodo.id)
+            .where(AsignacionAcademica.periodo_id.in_(periodo_ids))
             .options(
                 selectinload(AsignacionAcademica.informes).selectinload(InformeCorte.corte),
                 selectinload(AsignacionAcademica.informes).selectinload(InformeCorte.notas),
@@ -215,7 +291,13 @@ def resumen_dashboard_institucional(session, periodo_nombre: str) -> dict:
     docentes_acc: dict[int, dict] = {}
 
     for a in asignaciones:
-        ultimo = max(a.informes, key=lambda i: i.corte.numero)
+        if corte is not None:
+            elegido = next((i for i in a.informes if i.corte.numero == corte), None)
+            if elegido is None:
+                continue
+        else:
+            elegido = max(a.informes, key=lambda i: i.corte.numero)
+        ultimo = elegido
         por_materia.append(
             {
                 "materia": a.asignatura,
@@ -298,6 +380,7 @@ def resumen_dashboard_institucional(session, periodo_nombre: str) -> dict:
         "por_corte": por_corte,
         "por_docente": por_docente,
         "conteo_estado_actual": conteo_estado_actual,
+        "generado_en": datetime.now().strftime("%d/%m/%Y %H:%M"),
     }
 
 
@@ -313,3 +396,50 @@ def asignacion_con_detalle(session, asignacion_id: int) -> AsignacionAcademica |
         )
     )
     return session.scalar(stmt)
+
+
+# --- Calendario academico ----------------------------------------------------
+
+def listar_eventos_calendario(session, periodo_id: int) -> list[EventoCalendario]:
+    """Eventos del calendario oficial de un periodo, en el orden en que
+    aparecen en el calendario institucional (no alfabetico)."""
+    stmt = (
+        select(EventoCalendario)
+        .where(EventoCalendario.periodo_id == periodo_id)
+        .order_by(EventoCalendario.orden, EventoCalendario.fecha_inicio)
+    )
+    return list(session.scalars(stmt))
+
+
+def crear_evento_calendario(
+    session, periodo_id: int, actividad: str, fecha_inicio, fecha_fin=None, orden: int = 0
+) -> EventoCalendario:
+    evento = EventoCalendario(
+        periodo_id=periodo_id, actividad=actividad, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin, orden=orden
+    )
+    session.add(evento)
+    session.commit()
+    session.refresh(evento)
+    return evento
+
+
+def actualizar_evento_calendario(session, evento_id: int, **campos) -> EventoCalendario | None:
+    """campos admitidos: actividad, fecha_inicio, fecha_fin, orden (solo
+    se actualizan los que se pasen)."""
+    evento = session.get(EventoCalendario, evento_id)
+    if evento is None:
+        return None
+    for campo, valor in campos.items():
+        setattr(evento, campo, valor)
+    session.commit()
+    session.refresh(evento)
+    return evento
+
+
+def eliminar_evento_calendario(session, evento_id: int) -> bool:
+    evento = session.get(EventoCalendario, evento_id)
+    if evento is None:
+        return False
+    session.delete(evento)
+    session.commit()
+    return True

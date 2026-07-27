@@ -35,7 +35,19 @@ ETIQUETA_ESTADO = {
 }
 
 
-def _encabezado(story, styles, periodo_nombre):
+def describir_alcance(anio: int, semestre: int | None = None, corte: int | None = None) -> str:
+    """Texto legible del alcance elegido por el Director/Secretario, p.ej.
+    'Año 2026 · Semestre 1 · Corte 2' o 'Año 2026 (ambos semestres)'."""
+    partes = [f"Año {anio}"]
+    partes.append(f"Semestre {semestre}" if semestre is not None else "ambos semestres")
+    if corte is not None:
+        partes.append(f"Corte {corte}")
+    if semestre is None:
+        return f"{partes[0]} ({partes[1]})" + (f" · {partes[2]}" if len(partes) > 2 else "")
+    return " · ".join(partes)
+
+
+def _encabezado(story, styles, etiqueta_alcance):
     logos = []
     if ESCUDO_UNPA.exists():
         logos.append(Image(str(ESCUDO_UNPA), width=1.8 * cm, height=1.8 * cm))
@@ -60,16 +72,20 @@ def _encabezado(story, styles, periodo_nombre):
     story.append(Spacer(1, 6))
     story.append(
         Paragraph(
-            f"Periodo académico: <b>{periodo_nombre}</b>  ·  Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}",
+            f"Alcance: <b>{etiqueta_alcance}</b>  ·  Fecha de generación: {datetime.now().strftime('%d/%m/%Y %H:%M')}",
             ParagraphStyle("sub", parent=styles["Normal"], fontSize=9, textColor=GRIS),
         )
     )
     story.append(Spacer(1, 10))
 
 
-def _seccion_docente(story, styles, docente, periodo_nombre):
+def _seccion_docente(story, styles, docente, etiqueta_alcance, periodo_ids=None, corte_filtro=None):
     """Agrega al story el bloque completo de un docente (datos + una tabla
-    por materia). Reutilizado por el informe individual y el consolidado."""
+    por materia). Reutilizado por el informe individual y el consolidado.
+
+    periodo_ids: ids de PeriodoAcademico a incluir (None = todos los
+    periodos del docente). corte_filtro: si se indica (1, 2 o 3), cada
+    tabla de materia muestra unicamente el informe de ese corte."""
     story.append(Paragraph(f"<b>Docente:</b> {docente.nombre_completo}", styles["Heading2"]))
     datos_docente = []
     if docente.cedula:
@@ -82,18 +98,27 @@ def _seccion_docente(story, styles, docente, periodo_nombre):
         story.append(Paragraph("  ·  ".join(datos_docente), ParagraphStyle("datos", parent=styles["Normal"], textColor=GRIS)))
     story.append(Spacer(1, 12))
 
-    asignaciones = [a for a in docente.asignaciones if a.periodo.nombre == periodo_nombre]
+    asignaciones = docente.asignaciones
+    if periodo_ids is not None:
+        asignaciones = [a for a in asignaciones if a.periodo_id in periodo_ids]
 
     if not asignaciones:
-        story.append(Paragraph(f"Sin materias registradas para el periodo {periodo_nombre}.", styles["Normal"]))
+        story.append(Paragraph(f"Sin materias registradas para {etiqueta_alcance}.", styles["Normal"]))
 
     for asignacion in asignaciones:
         titulo_materia = asignacion.asignatura + (f" — Grupo {asignacion.grupo}" if asignacion.grupo else "")
         story.append(Paragraph(titulo_materia, styles["Heading3"]))
 
         informes = sorted(asignacion.informes, key=lambda i: i.corte.numero)
+        if corte_filtro is not None:
+            informes = [i for i in informes if i.corte.numero == corte_filtro]
         if not informes:
-            story.append(Paragraph("Sin informes cargados todavía.", styles["Normal"]))
+            mensaje = (
+                f"Sin informe cargado para el Corte {corte_filtro}."
+                if corte_filtro is not None
+                else "Sin informes cargados todavía."
+            )
+            story.append(Paragraph(mensaje, styles["Normal"]))
             story.append(Spacer(1, 10))
             continue
 
@@ -265,9 +290,17 @@ def _seccion_resumen_institucional(story, styles, resumen: dict):
         story.append(tabla_mat)
 
 
-def generar_reporte_docente(docente, ruta_salida, periodo_nombre="2026-1"):
+def generar_reporte_docente(
+    docente, ruta_salida, etiqueta_alcance="2026-1", periodo_ids=None, corte_filtro=None
+):
     """docente: instancia de db.models.Usuario con .asignaciones precargadas
     (cada asignacion con .informes -> .corte y .notas).
+
+    etiqueta_alcance: texto a mostrar en el encabezado (p.ej. "2026-1" o
+    el resultado de describir_alcance(anio, semestre, corte)).
+    periodo_ids: ids de PeriodoAcademico a incluir (None = todos).
+    corte_filtro: si se indica, cada materia solo muestra el informe de
+    ese corte.
 
     ruta_salida puede ser una ruta (str/Path) o un objeto tipo archivo
     (p.ej. io.BytesIO, para devolver el PDF sin tocar disco desde la API)."""
@@ -278,16 +311,21 @@ def generar_reporte_docente(docente, ruta_salida, periodo_nombre="2026-1"):
         topMargin=1.2 * cm, bottomMargin=1.2 * cm, leftMargin=1.5 * cm, rightMargin=1.5 * cm,
     )
     story = []
-    _encabezado(story, styles, periodo_nombre)
-    _seccion_docente(story, styles, docente, periodo_nombre)
+    _encabezado(story, styles, etiqueta_alcance)
+    _seccion_docente(story, styles, docente, etiqueta_alcance, periodo_ids, corte_filtro)
     doc.build(story)
     return ruta_salida
 
 
-def generar_reporte_consolidado(docentes, ruta_salida, periodo_nombre="2026-1", resumen_dashboard=None):
+def generar_reporte_consolidado(
+    docentes, ruta_salida, etiqueta_alcance="2026-1", periodo_ids=None, corte_filtro=None, resumen_dashboard=None
+):
     """Un solo PDF con el informe de TODOS los docentes recibidos, cada uno
     en su propia pagina. docentes: lista de db.models.Usuario (con
     .asignaciones precargadas, igual que generar_reporte_docente).
+
+    etiqueta_alcance/periodo_ids/corte_filtro: igual que en
+    generar_reporte_docente, aplicados a cada docente del consolidado.
 
     resumen_dashboard: dict devuelto por
     db.repository.resumen_dashboard_institucional(); si se pasa, se agrega
@@ -300,7 +338,7 @@ def generar_reporte_consolidado(docentes, ruta_salida, periodo_nombre="2026-1", 
         topMargin=1.2 * cm, bottomMargin=1.2 * cm, leftMargin=1.5 * cm, rightMargin=1.5 * cm,
     )
     story = []
-    _encabezado(story, styles, periodo_nombre)
+    _encabezado(story, styles, etiqueta_alcance)
     story.append(
         Paragraph(
             f"Informe consolidado — {len(docentes)} docente(s)",
@@ -316,7 +354,7 @@ def generar_reporte_consolidado(docentes, ruta_salida, periodo_nombre="2026-1", 
     for i, docente in enumerate(docentes):
         if i > 0:
             story.append(PageBreak())
-        _seccion_docente(story, styles, docente, periodo_nombre)
+        _seccion_docente(story, styles, docente, etiqueta_alcance, periodo_ids, corte_filtro)
 
     doc.build(story)
     return ruta_salida

@@ -29,10 +29,9 @@ from db.database import get_session
 from db.repository import (
     guardar_informe_corte,
     obtener_o_crear_asignacion,
-    obtener_o_crear_periodo,
+    periodo_activo,
 )
-
-PERIODO_ACTUAL = "2026-1"
+from vistas import calendario
 
 PALETA = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
 MUTED = "#898781"
@@ -92,6 +91,9 @@ def render(usuario_id: int):
         "Cada materia procesada queda guardada en la base de datos para el Director y el "
         "Secretario Académico."
     )
+
+    calendario.render(puede_editar=False)
+    st.divider()
 
     st.subheader("1. Corte y plantilla")
     corte = st.radio(
@@ -250,7 +252,13 @@ def render(usuario_id: int):
         error_fatal = False
         db_session = get_session()
         try:
-            periodo = obtener_o_crear_periodo(db_session, PERIODO_ACTUAL)
+            periodo = periodo_activo(db_session)
+            if periodo is None:
+                st.error(
+                    "No hay ningún periodo académico activo. El Director o el Secretario Académico debe "
+                    "activarlo primero (sección 'Año · Semestre · Corte')."
+                )
+                st.stop()
 
             for r in subject_rows:
                 asistencia_regular = None

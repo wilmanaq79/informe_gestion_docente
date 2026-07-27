@@ -22,11 +22,10 @@ from agente_notas.estadisticas import (
     interpretar_materia,
     resumen_general,
 )
-from backend.core.config import settings
 from db.repository import (
     guardar_informe_corte,
     obtener_o_crear_asignacion,
-    obtener_o_crear_periodo,
+    periodo_activo,
 )
 
 
@@ -96,7 +95,12 @@ def procesar_materias(db_session, docente_id: int, excel_stream, corte: int, ite
         out_path = Path(tmp) / "salida.xlsx"
         wb = abrir_plantilla(excel_stream, str(out_path))
 
-        periodo = obtener_o_crear_periodo(db_session, settings.PERIODO_ACTUAL)
+        periodo = periodo_activo(db_session)
+        if periodo is None:
+            raise ValueError(
+                "No hay ningún periodo académico activo. El Director o el Secretario Académico debe "
+                "activar uno primero (sección 'Año · Semestre · Corte')."
+            )
         resultados_crudos = []
         stats_list = []
 

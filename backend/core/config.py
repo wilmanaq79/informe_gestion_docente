@@ -15,8 +15,6 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 480
 
-    PERIODO_ACTUAL: str = "2026-1"
-
     CORS_ORIGINS: list[str] = [
         "http://localhost:5173",  # servidor de desarrollo de Vite (React)
         "http://127.0.0.1:5173",

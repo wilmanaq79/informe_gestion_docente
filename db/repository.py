@@ -6,9 +6,12 @@ from datetime import datetime
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
+from agente_notas.almacenamiento import eliminar_archivo
 from db.models import (
     AsignacionAcademica,
     Corte,
+    DocumentoEntrega,
+    Entrega,
     EventoCalendario,
     InformeCorte,
     NotaEstudiante,
@@ -16,6 +19,10 @@ from db.models import (
     Rol,
     Usuario,
 )
+
+
+def corte_por_numero(session, numero: int) -> Corte | None:
+    return session.scalar(select(Corte).where(Corte.numero == numero))
 
 
 def parsear_periodo(nombre: str) -> tuple[int, int]:
@@ -443,3 +450,207 @@ def eliminar_evento_calendario(session, evento_id: int) -> bool:
     session.delete(evento)
     session.commit()
     return True
+
+
+# --- Entrega de documentos del docente ---------------------------------------
+
+def buscar_entrega(session, docente_id: int, periodo_id: int, corte_id: int) -> Entrega | None:
+    """Busqueda de solo lectura -- a diferencia de obtener_o_crear_entrega,
+    NO crea una fila si no existe. Usar para simplemente mostrar el
+    estado actual (p.ej. al renderizar la pantalla del docente) sin
+    ensuciar la base de datos con entregas vacias que nadie ha empezado."""
+    return session.scalar(
+        select(Entrega).where(
+            Entrega.docente_id == docente_id, Entrega.periodo_id == periodo_id, Entrega.corte_id == corte_id
+        )
+    )
+
+
+def obtener_o_crear_entrega(session, docente_id: int, periodo_id: int, corte_id: int) -> Entrega:
+    entrega = buscar_entrega(session, docente_id, periodo_id, corte_id)
+    if entrega is None:
+        entrega = Entrega(docente_id=docente_id, periodo_id=periodo_id, corte_id=corte_id)
+        session.add(entrega)
+        session.commit()
+        session.refresh(entrega)
+    return entrega
+
+
+def _volver_a_pendiente(entrega: Entrega) -> None:
+    """Cualquier cambio en los archivos de una entrega invalida una
+    revision anterior: hay que revisarla de nuevo antes de aprobarla."""
+    entrega.estado = "pendiente"
+    entrega.documentos_firmados_confirmado = False
+    entrega.comentario_revision = None
+    entrega.revisado_por_id = None
+    entrega.revisado_en = None
+    entrega.notificacion_enviada = False
+    entrega.notificacion_error = None
+
+
+def agregar_documento_entrega(
+    session,
+    entrega_id: int,
+    tipo_documento: str,
+    nombre_archivo: str,
+    ruta_archivo: str,
+    tamano_bytes: int,
+    materia: str | None = None,
+    descripcion_otro: str | None = None,
+) -> DocumentoEntrega:
+    entrega = session.get(Entrega, entrega_id)
+    if entrega is None:
+        raise ValueError(f"Entrega {entrega_id} no existe.")
+
+    documento = DocumentoEntrega(
+        entrega_id=entrega_id,
+        tipo_documento=tipo_documento,
+        materia=materia,
+        descripcion_otro=descripcion_otro,
+        nombre_archivo=nombre_archivo,
+        ruta_archivo=ruta_archivo,
+        tamano_bytes=tamano_bytes,
+    )
+    session.add(documento)
+    _volver_a_pendiente(entrega)
+    session.commit()
+    session.refresh(documento)
+    return documento
+
+
+def documento_entrega_por_id(session, documento_id: int) -> DocumentoEntrega | None:
+    return session.get(DocumentoEntrega, documento_id)
+
+
+def eliminar_documento_entrega(session, documento_id: int) -> bool:
+    """Borra el documento (fila + archivo en disco) y vuelve la entrega a
+    'pendiente' -- ya no representa lo que se revisó/aprobó antes. Si esa
+    entrega se queda sin ningún documento, tambien se elimina (no dejar
+    una entrega 'fantasma' con 0 archivos en la cola de revisión)."""
+    documento = session.get(DocumentoEntrega, documento_id)
+    if documento is None:
+        return False
+    entrega = session.get(Entrega, documento.entrega_id)
+    ruta = documento.ruta_archivo
+    session.delete(documento)
+    if entrega is not None:
+        _volver_a_pendiente(entrega)
+    session.commit()
+    eliminar_archivo(ruta)
+
+    if entrega is not None:
+        quedan = session.scalar(
+            select(func.count()).select_from(DocumentoEntrega).where(DocumentoEntrega.entrega_id == entrega.id)
+        )
+        if quedan == 0:
+            session.delete(entrega)
+            session.commit()
+    return True
+
+
+def listar_entregas(
+    session,
+    periodo_id: int | None = None,
+    corte_id: int | None = None,
+    estado: str | None = None,
+    docente_id: int | None = None,
+    documento_docente: str | None = None,
+) -> list[Entrega]:
+    """documento_docente: busca por la cedula del docente (coincidencia
+    parcial), para que Director/Secretario/Secretaria puedan consultar
+    las entregas de un docente especifico entre todo el historico."""
+    stmt = select(Entrega).options(
+        selectinload(Entrega.documentos),
+        selectinload(Entrega.docente),
+        selectinload(Entrega.periodo),
+        selectinload(Entrega.corte),
+        selectinload(Entrega.revisado_por),
+    )
+    if periodo_id is not None:
+        stmt = stmt.where(Entrega.periodo_id == periodo_id)
+    if corte_id is not None:
+        stmt = stmt.where(Entrega.corte_id == corte_id)
+    if estado is not None:
+        stmt = stmt.where(Entrega.estado == estado)
+    if docente_id is not None:
+        stmt = stmt.where(Entrega.docente_id == docente_id)
+    if documento_docente:
+        stmt = stmt.join(Usuario, Entrega.docente_id == Usuario.id).where(
+            Usuario.cedula.ilike(f"%{documento_docente.strip()}%")
+        )
+    stmt = stmt.order_by(Entrega.actualizado_en.desc())
+    return list(session.scalars(stmt).unique())
+
+
+def entrega_con_detalle(session, entrega_id: int) -> Entrega | None:
+    stmt = (
+        select(Entrega)
+        .where(Entrega.id == entrega_id)
+        .options(
+            selectinload(Entrega.documentos),
+            selectinload(Entrega.docente),
+            selectinload(Entrega.periodo),
+            selectinload(Entrega.corte),
+            selectinload(Entrega.revisado_por),
+        )
+    )
+    return session.scalar(stmt)
+
+
+def aprobar_entrega(session, entrega_id: int, revisor_id: int, comentario: str | None = None) -> Entrega:
+    entrega = entrega_con_detalle(session, entrega_id)
+    if entrega is None:
+        raise ValueError(f"Entrega {entrega_id} no existe.")
+    if not entrega.documentos:
+        raise ValueError("No se puede aprobar una entrega sin documentos cargados.")
+
+    entrega.estado = "aprobado"
+    entrega.documentos_firmados_confirmado = True
+    entrega.comentario_revision = comentario
+    entrega.revisado_por_id = revisor_id
+    entrega.revisado_en = datetime.utcnow()
+    session.commit()
+    session.refresh(entrega)
+    return entrega
+
+
+def rechazar_entrega(session, entrega_id: int, revisor_id: int, comentario: str) -> Entrega:
+    if not comentario or not comentario.strip():
+        raise ValueError("Debes indicar el motivo del rechazo.")
+    entrega = session.get(Entrega, entrega_id)
+    if entrega is None:
+        raise ValueError(f"Entrega {entrega_id} no existe.")
+
+    entrega.estado = "rechazado"
+    entrega.documentos_firmados_confirmado = False
+    entrega.comentario_revision = comentario
+    entrega.revisado_por_id = revisor_id
+    entrega.revisado_en = datetime.utcnow()
+    session.commit()
+    session.refresh(entrega)
+    return entrega
+
+
+def marcar_notificacion_entrega(session, entrega_id: int, enviada: bool, error: str | None) -> None:
+    entrega = session.get(Entrega, entrega_id)
+    if entrega is not None:
+        entrega.notificacion_enviada = enviada
+        entrega.notificacion_error = error
+        session.commit()
+
+
+def emails_personal_revisor(session) -> list[str]:
+    """Correos de todos los Directores, Secretarios Academicos y
+    Secretarias del Programa activos -- los tres roles que pueden
+    revisar/aprobar una entrega, y a quienes se notifica junto con el
+    docente cuando una entrega queda aprobada."""
+    stmt = (
+        select(Usuario.email)
+        .join(Rol, Usuario.rol_id == Rol.id)
+        .where(
+            Rol.nombre.in_(("director", "secretario", "secretaria_programa")),
+            Usuario.activo.is_(True),
+            Usuario.email.is_not(None),
+        )
+    )
+    return [e for e in session.scalars(stmt) if e]

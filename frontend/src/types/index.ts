@@ -2,7 +2,7 @@ export interface Usuario {
   id: number;
   nombre_completo: string;
   username: string;
-  rol: "docente" | "director" | "secretario";
+  rol: "docente" | "director" | "secretario" | "secretaria_programa";
   activo: boolean;
 }
 
@@ -202,4 +202,37 @@ export interface FiltroAlcance {
   anio: number;
   semestre: number | null;
   corte: number | null;
+}
+
+export type EstadoEntrega = "pendiente" | "aprobado" | "rechazado";
+
+export interface DocumentoEntrega {
+  id: number;
+  tipo_documento: string;
+  descripcion_otro: string | null;
+  materia: string | null;
+  nombre_archivo: string;
+  tamano_bytes: number;
+  subido_en: string;
+}
+
+export interface Entrega {
+  id: number;
+  docente_id: number;
+  docente_nombre: string;
+  periodo_id: number;
+  periodo_nombre: string;
+  corte_id: number;
+  corte_numero: number;
+  corte_nombre: string;
+  estado: EstadoEntrega;
+  documentos_firmados_confirmado: boolean;
+  comentario_revision: string | null;
+  revisado_por_nombre: string | null;
+  revisado_en: string | null;
+  notificacion_enviada: boolean;
+  notificacion_error: string | null;
+  creado_en: string;
+  actualizado_en: string;
+  documentos: DocumentoEntrega[];
 }

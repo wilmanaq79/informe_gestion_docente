@@ -206,3 +206,79 @@ class EventoCalendario(Base):
     orden: Mapped[int] = mapped_column(default=0)  # para respetar el orden del calendario oficial
 
     periodo: Mapped["PeriodoAcademico"] = relationship()
+
+
+# --- Entrega de documentos del docente (listas de asistencia, notas --------
+# firmadas, informe de gestion docente, etc.), revisada y aprobada por la
+# Secretaria del Programa. --------------------------------------------------
+
+TIPOS_DOCUMENTO_ENTREGA = {
+    "lista_asistencia": "Lista de asistencia (firmada por el docente)",
+    "notas_firmadas": "Notas (firmadas por el docente)",
+    "informe_gestion_docente": "Informe de gestión docente (firmado por el docente)",
+    "otro": "Otro (firmado por el docente)",
+}
+
+ESTADOS_ENTREGA = ("pendiente", "aprobado", "rechazado")
+
+
+class Entrega(Base):
+    """La entrega documental de UN docente para UN periodo+corte: agrupa
+    todos los archivos que sube (listas de asistencia, notas firmadas,
+    informe de gestion docente, etc.) bajo un solo estado de revision.
+    Solo la Secretaria del Programa aprueba o rechaza; al aprobar se
+    notifica por correo al Director, al Secretario Academico y al
+    docente."""
+
+    __tablename__ = "entregas"
+    __table_args__ = (
+        UniqueConstraint("docente_id", "periodo_id", "corte_id", name="uq_entrega_docente_periodo_corte"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    docente_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    periodo_id: Mapped[int] = mapped_column(ForeignKey("periodos_academicos.id"), nullable=False)
+    corte_id: Mapped[int] = mapped_column(ForeignKey("cortes.id"), nullable=False)
+
+    estado: Mapped[str] = mapped_column(String(20), nullable=False, default="pendiente")
+    documentos_firmados_confirmado: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    comentario_revision: Mapped[str | None] = mapped_column(String(500))
+    revisado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    revisado_en: Mapped[datetime | None] = mapped_column(DateTime)
+
+    notificacion_enviada: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    notificacion_error: Mapped[str | None] = mapped_column(String(300))
+
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    actualizado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    docente: Mapped["Usuario"] = relationship(foreign_keys=[docente_id])
+    revisado_por: Mapped["Usuario | None"] = relationship(foreign_keys=[revisado_por_id])
+    periodo: Mapped["PeriodoAcademico"] = relationship()
+    corte: Mapped["Corte"] = relationship()
+    documentos: Mapped[list["DocumentoEntrega"]] = relationship(
+        back_populates="entrega", cascade="all, delete-orphan", order_by="DocumentoEntrega.subido_en"
+    )
+
+
+class DocumentoEntrega(Base):
+    """Un archivo especifico dentro de una Entrega (p.ej. la lista de
+    asistencia de una materia, o el Excel de informe de gestion
+    docente). El archivo en si se guarda en disco (ver
+    agente_notas.almacenamiento); aqui solo se guarda la ruta y los
+    metadatos."""
+
+    __tablename__ = "documentos_entrega"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    entrega_id: Mapped[int] = mapped_column(ForeignKey("entregas.id", ondelete="CASCADE"), nullable=False)
+    tipo_documento: Mapped[str] = mapped_column(String(50), nullable=False)  # ver TIPOS_DOCUMENTO_ENTREGA
+    descripcion_otro: Mapped[str | None] = mapped_column(String(150))  # solo si tipo_documento == 'otro'
+    materia: Mapped[str | None] = mapped_column(String(150))
+
+    nombre_archivo: Mapped[str] = mapped_column(String(255), nullable=False)
+    ruta_archivo: Mapped[str] = mapped_column(String(500), nullable=False)
+    tamano_bytes: Mapped[int] = mapped_column(nullable=False)
+    subido_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    entrega: Mapped["Entrega"] = relationship(back_populates="documentos")

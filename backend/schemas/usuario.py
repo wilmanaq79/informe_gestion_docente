@@ -7,7 +7,7 @@ class UsuarioCreate(BaseModel):
     email: str | None = None
     username: str
     password: str
-    rol: str  # 'docente' | 'director' | 'secretario'
+    rol: str  # 'docente' | 'director' | 'secretario' | 'secretaria_programa'
 
 
 class UsuarioOut(BaseModel):

@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, mensajeError } from "../api/client";
 import CalendarioAcademico from "../components/CalendarioAcademico";
 import DashboardInstitucional from "../components/DashboardInstitucional";
+import EntregasDocumentos from "../components/EntregasDocumentos";
 import Header from "../components/Header";
 import { useAuth } from "../context/AuthContext";
 import { DocenteDetalle, DocenteResumen, Periodo, UsuarioAdmin, UsuarioCreate } from "../types";
@@ -429,6 +430,8 @@ export default function DireccionPage() {
         )}
 
         <AdministracionUsuarios onUsuarioCreado={cargarDocentes} />
+
+        <EntregasDocumentos />
       </main>
     </>
   );
@@ -520,6 +523,7 @@ function AdministracionUsuarios({ onUsuarioCreado }: { onUsuarioCreado: () => vo
               <option value="docente">docente</option>
               <option value="director">director</option>
               <option value="secretario">secretario</option>
+              <option value="secretaria_programa">secretaria del programa</option>
             </select>
           </label>
           {mensaje && <p className={`mensaje mensaje--${mensaje.tipo === "exito" ? "exito" : "error"}`}>{mensaje.texto}</p>}

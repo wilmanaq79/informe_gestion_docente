@@ -31,7 +31,7 @@ from db.repository import (
     obtener_o_crear_asignacion,
     periodo_activo,
 )
-from vistas import calendario
+from vistas import calendario, entregas
 
 PALETA = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
 MUTED = "#898781"
@@ -80,6 +80,133 @@ def _filas_notas_para_bd(estudiantes, corte):
             }
         )
     return filas
+
+
+def _render_dashboard_rendimiento(subject_rows, corte):
+    stats_por_materia = [
+        estadisticas_materia(r["materia"], r["grupo"], r["estudiantes"], corte)
+        for r in subject_rows
+    ]
+    general = resumen_general(stats_por_materia)
+
+    st.caption(
+        "Calculado sobre la nota definitiva de cada estudiante en los PDF cargados — "
+        + ("cálculo exacto (Corte 3)." if corte == 3 else "ESTIMACIÓN proyectada (aún falta corte por calificar).")
+    )
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("Promedio general (todos los estudiantes)", f"{general['promedio_general']:.1f}")
+    k2.metric("Dispersión general (desv. estándar)", f"±{general['desviacion_general']:.1f}")
+    if general["mejor_materia"] is not None:
+        k3.metric("Mejor promedio por asignatura", f"{general['mejor_materia'].promedio:.1f} pts")
+        k3.caption(general["mejor_materia"].materia)
+    if general["materia_mayor_dispersion"] is not None:
+        k4.metric("Asignatura con mayor dispersión", f"±{general['materia_mayor_dispersion'].desviacion:.1f}")
+        k4.caption(general["materia_mayor_dispersion"].materia)
+
+    materias_nombres = [e.materia for e in stats_por_materia]
+    promedios = [round(e.promedio, 1) for e in stats_por_materia]
+    mejores = [round(e.mejor_nota, 1) for e in stats_por_materia]
+    desviaciones = [round(e.desviacion, 1) for e in stats_por_materia]
+
+    col_a, col_b = st.columns(2)
+
+    with col_a:
+        fig_prom = go.Figure()
+        fig_prom.add_bar(name="Promedio general", x=materias_nombres, y=promedios,
+                          marker_color=PALETA[0], text=promedios, textposition="outside",
+                          textfont_color=MUTED)
+        fig_prom.add_bar(name="Mejor promedio", x=materias_nombres, y=mejores,
+                          marker_color=PALETA[1], text=mejores, textposition="outside",
+                          textfont_color=MUTED)
+        tema_grafico(
+            fig_prom,
+            barmode="group",
+            title="Promedio general vs. mejor nota por asignatura",
+            yaxis_title="Nota (0-100)", yaxis_range=[0, 110],
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            margin=dict(t=70),
+        )
+        st.plotly_chart(fig_prom, use_container_width=True)
+
+    with col_b:
+        fig_disp = go.Figure()
+        fig_disp.add_bar(x=materias_nombres, y=desviaciones, marker_color=PALETA[2],
+                          text=desviaciones, textposition="outside", textfont_color=MUTED)
+        tema_grafico(
+            fig_disp,
+            title="Dispersión (desviación estándar) por asignatura",
+            yaxis_title="Desviación estándar",
+            margin=dict(t=70),
+        )
+        st.plotly_chart(fig_disp, use_container_width=True)
+
+    fig_box = go.Figure()
+    for i, est in enumerate(stats_por_materia):
+        fig_box.add_box(
+            y=[n["nota"] for n in est.notas],
+            name=est.materia,
+            marker_color=PALETA[i % len(PALETA)],
+            boxmean=True,
+        )
+    tema_grafico(
+        fig_box,
+        title="Distribución de notas por asignatura (rendimiento y dispersión de los estudiantes)",
+        yaxis_title="Nota (0-100)", showlegend=False,
+        margin=dict(t=70),
+    )
+    st.plotly_chart(fig_box, use_container_width=True)
+
+    st.markdown("**Rendimiento por estudiante**")
+    materia_foco = st.selectbox("Ver ranking de estudiantes de:", materias_nombres, key="dash_materia_foco")
+    est_foco = next(e for e in stats_por_materia if e.materia == materia_foco)
+    notas_ordenadas = sorted(est_foco.notas, key=lambda n: n["nota"], reverse=True)
+    colores_barra = ["#0ca30c" if n["nota"] >= 60 else "#d03b3b" for n in notas_ordenadas]
+
+    fig_rank = go.Figure()
+    fig_rank.add_bar(
+        x=[n["nota"] for n in notas_ordenadas],
+        y=[n["nombre"] for n in notas_ordenadas],
+        orientation="h",
+        marker_color=colores_barra,
+    )
+    tema_grafico(
+        fig_rank,
+        title=f"Ranking de estudiantes — {materia_foco}",
+        xaxis_title="Nota (0-100)", xaxis_range=[0, 105],
+        height=max(320, 26 * len(notas_ordenadas)),
+        yaxis=dict(autorange="reversed"),
+        margin=dict(t=60, l=200),
+    )
+    st.plotly_chart(fig_rank, use_container_width=True)
+    st.caption("🟢 Nota ≥ 60 (aprueba)  ·  🔴 Nota < 60 (reprueba)")
+
+    with st.expander("Ver tabla completa: rendimiento por estudiante y materia"):
+        filas = [
+            {"Materia": e.materia, "Estudiante": n["nombre"], "Nota definitiva": n["nota"]}
+            for e in stats_por_materia
+            for n in e.notas
+        ]
+        st.dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True)
+
+    st.divider()
+    st.markdown("### 🧠 Interpretación del rendimiento")
+    st.caption(
+        "Lectura automática de las medidas de tendencia central (promedio, mediana) y de dispersión "
+        "(desviación estándar, coeficiente de variación, rango) para apoyar el análisis del docente."
+    )
+
+    st.info(interpretar_general(general, stats_por_materia))
+
+    st.markdown("**Lectura por asignatura**")
+    for est in stats_por_materia:
+        with st.expander(f"{est.materia} — promedio {est.promedio:.1f}, dispersión ±{est.desviacion:.1f}"):
+            t1, t2, t3, t4 = st.columns(4)
+            t1.metric("Promedio", f"{est.promedio:.1f}")
+            t2.metric("Mediana", f"{est.mediana:.1f}")
+            t3.metric("Desv. estándar", f"±{est.desviacion:.1f}")
+            t4.metric("Coef. de variación", f"{est.coef_variacion:.0f}%")
+            st.write(interpretar_materia(est))
 
 
 def render(usuario_id: int):
@@ -347,131 +474,10 @@ def render(usuario_id: int):
     st.divider()
     st.subheader("5. Dashboard de rendimiento")
 
-    if not subject_rows:
+    if subject_rows:
+        _render_dashboard_rendimiento(subject_rows, corte)
+    else:
         st.info("Sube al menos un PDF de notas (sección 2) para ver el dashboard de rendimiento.")
-        return
-
-    stats_por_materia = [
-        estadisticas_materia(r["materia"], r["grupo"], r["estudiantes"], corte)
-        for r in subject_rows
-    ]
-    general = resumen_general(stats_por_materia)
-
-    st.caption(
-        "Calculado sobre la nota definitiva de cada estudiante en los PDF cargados — "
-        + ("cálculo exacto (Corte 3)." if corte == 3 else "ESTIMACIÓN proyectada (aún falta corte por calificar).")
-    )
-
-    k1, k2, k3, k4 = st.columns(4)
-    k1.metric("Promedio general (todos los estudiantes)", f"{general['promedio_general']:.1f}")
-    k2.metric("Dispersión general (desv. estándar)", f"±{general['desviacion_general']:.1f}")
-    if general["mejor_materia"] is not None:
-        k3.metric("Mejor promedio por asignatura", f"{general['mejor_materia'].promedio:.1f} pts")
-        k3.caption(general["mejor_materia"].materia)
-    if general["materia_mayor_dispersion"] is not None:
-        k4.metric("Asignatura con mayor dispersión", f"±{general['materia_mayor_dispersion'].desviacion:.1f}")
-        k4.caption(general["materia_mayor_dispersion"].materia)
-
-    materias_nombres = [e.materia for e in stats_por_materia]
-    promedios = [round(e.promedio, 1) for e in stats_por_materia]
-    mejores = [round(e.mejor_nota, 1) for e in stats_por_materia]
-    desviaciones = [round(e.desviacion, 1) for e in stats_por_materia]
-
-    col_a, col_b = st.columns(2)
-
-    with col_a:
-        fig_prom = go.Figure()
-        fig_prom.add_bar(name="Promedio general", x=materias_nombres, y=promedios,
-                          marker_color=PALETA[0], text=promedios, textposition="outside",
-                          textfont_color=MUTED)
-        fig_prom.add_bar(name="Mejor promedio", x=materias_nombres, y=mejores,
-                          marker_color=PALETA[1], text=mejores, textposition="outside",
-                          textfont_color=MUTED)
-        tema_grafico(
-            fig_prom,
-            barmode="group",
-            title="Promedio general vs. mejor nota por asignatura",
-            yaxis_title="Nota (0-100)", yaxis_range=[0, 110],
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            margin=dict(t=70),
-        )
-        st.plotly_chart(fig_prom, use_container_width=True)
-
-    with col_b:
-        fig_disp = go.Figure()
-        fig_disp.add_bar(x=materias_nombres, y=desviaciones, marker_color=PALETA[2],
-                          text=desviaciones, textposition="outside", textfont_color=MUTED)
-        tema_grafico(
-            fig_disp,
-            title="Dispersión (desviación estándar) por asignatura",
-            yaxis_title="Desviación estándar",
-            margin=dict(t=70),
-        )
-        st.plotly_chart(fig_disp, use_container_width=True)
-
-    fig_box = go.Figure()
-    for i, est in enumerate(stats_por_materia):
-        fig_box.add_box(
-            y=[n["nota"] for n in est.notas],
-            name=est.materia,
-            marker_color=PALETA[i % len(PALETA)],
-            boxmean=True,
-        )
-    tema_grafico(
-        fig_box,
-        title="Distribución de notas por asignatura (rendimiento y dispersión de los estudiantes)",
-        yaxis_title="Nota (0-100)", showlegend=False,
-        margin=dict(t=70),
-    )
-    st.plotly_chart(fig_box, use_container_width=True)
-
-    st.markdown("**Rendimiento por estudiante**")
-    materia_foco = st.selectbox("Ver ranking de estudiantes de:", materias_nombres, key="dash_materia_foco")
-    est_foco = next(e for e in stats_por_materia if e.materia == materia_foco)
-    notas_ordenadas = sorted(est_foco.notas, key=lambda n: n["nota"], reverse=True)
-    colores_barra = ["#0ca30c" if n["nota"] >= 60 else "#d03b3b" for n in notas_ordenadas]
-
-    fig_rank = go.Figure()
-    fig_rank.add_bar(
-        x=[n["nota"] for n in notas_ordenadas],
-        y=[n["nombre"] for n in notas_ordenadas],
-        orientation="h",
-        marker_color=colores_barra,
-    )
-    tema_grafico(
-        fig_rank,
-        title=f"Ranking de estudiantes — {materia_foco}",
-        xaxis_title="Nota (0-100)", xaxis_range=[0, 105],
-        height=max(320, 26 * len(notas_ordenadas)),
-        yaxis=dict(autorange="reversed"),
-        margin=dict(t=60, l=200),
-    )
-    st.plotly_chart(fig_rank, use_container_width=True)
-    st.caption("🟢 Nota ≥ 60 (aprueba)  ·  🔴 Nota < 60 (reprueba)")
-
-    with st.expander("Ver tabla completa: rendimiento por estudiante y materia"):
-        filas = [
-            {"Materia": e.materia, "Estudiante": n["nombre"], "Nota definitiva": n["nota"]}
-            for e in stats_por_materia
-            for n in e.notas
-        ]
-        st.dataframe(pd.DataFrame(filas), use_container_width=True, hide_index=True)
 
     st.divider()
-    st.markdown("### 🧠 Interpretación del rendimiento")
-    st.caption(
-        "Lectura automática de las medidas de tendencia central (promedio, mediana) y de dispersión "
-        "(desviación estándar, coeficiente de variación, rango) para apoyar el análisis del docente."
-    )
-
-    st.info(interpretar_general(general, stats_por_materia))
-
-    st.markdown("**Lectura por asignatura**")
-    for est in stats_por_materia:
-        with st.expander(f"{est.materia} — promedio {est.promedio:.1f}, dispersión ±{est.desviacion:.1f}"):
-            t1, t2, t3, t4 = st.columns(4)
-            t1.metric("Promedio", f"{est.promedio:.1f}")
-            t2.metric("Mediana", f"{est.mediana:.1f}")
-            t3.metric("Desv. estándar", f"±{est.desviacion:.1f}")
-            t4.metric("Coef. de variación", f"{est.coef_variacion:.0f}%")
-            st.write(interpretar_materia(est))
+    entregas.render(usuario_id, "docente", materias_disponibles=materias_disponibles)

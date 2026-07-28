@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, mensajeError } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { EventoCalendario, Periodo } from "../types";
+import EstadoVacio from "./ui/EstadoVacio";
 
 function formatearFecha(iso: string): string {
   const d = new Date(iso + "T00:00:00");
@@ -109,7 +110,7 @@ export default function CalendarioAcademico() {
   const periodoSeleccionado = periodos.find((p) => p.id === periodoId);
 
   return (
-    <section className="card">
+    <section className="card" id="calendario">
       <h2>🗓️ Calendario académico{periodoSeleccionado ? ` — ${periodoSeleccionado.nombre}` : ""}</h2>
       <p className="texto-ayuda">
         Fechas oficiales del semestre: inicio y fin de clases, parciales y límites de reporte de notas por
@@ -132,7 +133,7 @@ export default function CalendarioAcademico() {
       </label>
 
       {eventos.length === 0 ? (
-        <p className="mensaje mensaje--info">Todavía no hay eventos cargados para este periodo.</p>
+        <EstadoVacio icono="🗓️" texto="Todavía no hay eventos cargados para este periodo." />
       ) : (
         <div className="tabla-scroll">
           <table className="tabla">

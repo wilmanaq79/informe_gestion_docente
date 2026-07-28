@@ -5,7 +5,17 @@ import EntregasDocumentos from "../components/EntregasDocumentos";
 import Header from "../components/Header";
 import RepositorioAsignaturas from "../components/RepositorioAsignaturas";
 import { GraficoDispersion, GraficoPromedioVsMejor, GraficoRanking } from "../components/charts/DashboardCharts";
+import SeccionNav from "../components/ui/SeccionNav";
 import { EstudianteNota, PdfPreview, ProcesarResponse, ResumenMateria } from "../types";
+
+const SECCIONES_NAV = [
+  { id: "calendario", etiqueta: "🗓️ Calendario académico" },
+  { id: "corte-plantilla", etiqueta: "1. Corte e informe de gestión docente (MI-DO-FO16)" },
+  { id: "pdf-notas", etiqueta: "2. PDF de notas" },
+  { id: "procesar", etiqueta: "4. Procesar" },
+  { id: "entregas", etiqueta: "📎 Entregas" },
+  { id: "repositorio", etiqueta: "📚 Repositorio" },
+];
 
 const CORTE_LABELS: Record<number, string> = { 1: "Corte 1", 2: "Corte 2", 3: "Corte 3 / Final" };
 
@@ -227,6 +237,7 @@ export default function DocentePage() {
   return (
     <>
       <Header />
+      <SeccionNav secciones={SECCIONES_NAV} />
       <main className="page">
         <p className="texto-ayuda">
           Carga los PDF de notas de todas tus materias para un corte, confirma a qué bloque de la plantilla
@@ -237,8 +248,8 @@ export default function DocentePage() {
 
         <CalendarioAcademico />
 
-        <section className="card">
-          <h2>1. Corte y plantilla</h2>
+        <section className="card" id="corte-plantilla">
+          <h2>1. Corte e informe de gestión docente (MI-DO-FO16)</h2>
           <div className="opciones-corte">
             {[1, 2, 3].map((c) => (
               <label key={c} className={`chip ${corte === c ? "chip--activo" : ""}`}>
@@ -254,7 +265,7 @@ export default function DocentePage() {
           {excelFile && <p className="texto-ayuda">📄 {excelFile.name}</p>}
         </section>
 
-        <section className="card">
+        <section className="card" id="pdf-notas">
           <h2>2. PDF de notas por materia</h2>
           <p className="texto-ayuda">Sube uno o varios PDF (uno por cada materia que dictas este corte).</p>
           <label className="campo-archivo">
@@ -329,7 +340,7 @@ export default function DocentePage() {
           </section>
         )}
 
-        <section className="card">
+        <section className="card" id="procesar">
           <h2>4. Procesar</h2>
           {errorGeneral && <p className="mensaje mensaje--error">{errorGeneral}</p>}
           <button

@@ -2,6 +2,7 @@ import { Fragment, useEffect, useState } from "react";
 import { api, mensajeError } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { Politica } from "../types";
+import Spinner from "./ui/Spinner";
 
 function renderParrafo(parrafo: string, indice: number) {
   const partes = parrafo.split(/\*\*(.+?)\*\*/g);
@@ -56,16 +57,17 @@ export default function AvisoPrivacidad() {
           style={{
             maxHeight: "45vh",
             overflowY: "auto",
-            border: "1px solid var(--color-borde, #ccc)",
+            border: "1px solid var(--border)",
             borderRadius: "8px",
             padding: "1rem",
             marginBottom: "1rem",
+            background: "var(--surface-2)",
           }}
         >
           {politica ? (
             politica.texto.split(/\n\n+/).map((parrafo, i) => renderParrafo(parrafo, i))
           ) : (
-            <p>Cargando…</p>
+            <Spinner texto="Cargando el aviso de privacidad…" />
           )}
         </div>
 

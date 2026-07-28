@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { api, mensajeError } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { RepositorioAsignatura, UsuarioAdmin } from "../types";
+import EstadoVacio from "./ui/EstadoVacio";
 
 function formatearTamano(bytes: number | null): string {
   if (bytes == null) return "—";
@@ -207,7 +208,7 @@ export default function RepositorioAsignaturas() {
   }
 
   return (
-    <section className="card">
+    <section className="card" id="repositorio">
       <h2>📚 Repositorio de sílabos y programas de asignatura</h2>
       <p className="texto-ayuda">
         Consulta y descarga el sílabo y el programa de asignatura de cada materia.
@@ -225,7 +226,7 @@ export default function RepositorioAsignaturas() {
       </label>
 
       {entradas.length === 0 ? (
-        <p className="mensaje mensaje--info">No hay asignaturas registradas en el repositorio todavía.</p>
+        <EstadoVacio icono="📚" texto="No hay asignaturas registradas en el repositorio todavía." />
       ) : (
         entradas.map((entrada) => (
           <details key={entrada.id} className="detalle-interpretacion" style={{ marginTop: "0.75rem" }}>

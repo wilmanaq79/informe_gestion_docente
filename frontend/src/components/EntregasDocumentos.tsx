@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { api, mensajeError } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { DocumentoEntrega, Entrega, Periodo } from "../types";
+import EstadoVacio from "./ui/EstadoVacio";
 
 const CORTE_NOMBRE: Record<number, string> = { 1: "Corte 1", 2: "Corte 2", 3: "Corte 3 / Final" };
 
@@ -246,7 +247,7 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
   }
 
   return (
-    <section className="card">
+    <section className="card" id="entregas">
       <h2>📎 Entrega de documentos</h2>
       <p className="texto-ayuda">
         Listas de asistencia, notas firmadas, informe de gestión docente y demás soportes de la entrega del
@@ -391,7 +392,7 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
       ) : (
         <div style={{ marginTop: "1rem" }}>
           {entregas.length === 0 ? (
-            <p className="mensaje mensaje--info">No hay entregas para este Periodo/Corte con el filtro elegido.</p>
+            <EstadoVacio icono="📎" texto="No hay entregas para este Periodo/Corte con el filtro elegido." />
           ) : (
             entregas.map((entrega) => (
               <details key={entrega.id} className="detalle-interpretacion">

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api/client";
 import { Notificacion } from "../types";
+import EstadoVacio from "./ui/EstadoVacio";
 
 function formatearFecha(iso: string): string {
   return new Date(iso).toLocaleString("es-CO", {
@@ -128,7 +129,7 @@ export default function NotificacionesBell() {
             )}
           </div>
           {notificaciones.length === 0 ? (
-            <p className="texto-ayuda">No tienes notificaciones todavía.</p>
+            <EstadoVacio icono="🔔" texto="No tienes notificaciones todavía." />
           ) : (
             <ul style={{ listStyle: "none", padding: 0, margin: "0.5rem 0 0" }}>
               {notificaciones.map((n) => (
@@ -137,9 +138,10 @@ export default function NotificacionesBell() {
                   onClick={() => marcarUnaLeida(n)}
                   style={{
                     padding: "0.5rem 0",
-                    borderBottom: "1px solid rgba(255,255,255,0.08)",
+                    borderBottom: "1px solid var(--border)",
                     cursor: n.leida ? "default" : "pointer",
                     opacity: n.leida ? 0.65 : 1,
+                    transition: "opacity 0.15s ease",
                   }}
                 >
                   <div style={{ fontWeight: n.leida ? 400 : 700 }}>{n.mensaje}</div>

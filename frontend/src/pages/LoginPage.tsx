@@ -27,13 +27,26 @@ export default function LoginPage() {
       <main className="page page--centrado">
         <form className="card card--login" onSubmit={handleSubmit}>
           <h2>Iniciar sesión</h2>
+          <p className="texto-ayuda" style={{ marginTop: "-0.5rem" }}>
+            Ingresa tus credenciales para continuar.
+          </p>
           <label>
             Usuario
-            <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus required />
+            <span className="campo-icono">
+              <span className="campo-icono__icono" aria-hidden="true">
+                👤
+              </span>
+              <input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus required />
+            </span>
           </label>
           <label>
             Contraseña
-            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            <span className="campo-icono">
+              <span className="campo-icono__icono" aria-hidden="true">
+                🔒
+              </span>
+              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
+            </span>
           </label>
           {error && <p className="mensaje mensaje--error">{error}</p>}
           <button type="submit" className="btn btn--primario" disabled={cargando}>

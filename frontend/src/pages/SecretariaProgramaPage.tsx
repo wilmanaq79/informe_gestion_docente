@@ -1,6 +1,7 @@
 import CalendarioAcademico from "../components/CalendarioAcademico";
 import EntregasDocumentos from "../components/EntregasDocumentos";
 import Header from "../components/Header";
+import RepositorioAsignaturas from "../components/RepositorioAsignaturas";
 
 export default function SecretariaProgramaPage() {
   return (
@@ -16,6 +17,8 @@ export default function SecretariaProgramaPage() {
         <CalendarioAcademico />
 
         <EntregasDocumentos />
+
+        <RepositorioAsignaturas />
       </main>
     </>
   );

@@ -22,9 +22,11 @@ from db.repository import (
     corte_por_numero,
     eliminar_documento_entrega,
     emails_personal_revisor,
+    ids_personal_revisor,
     listar_entregas,
     listar_periodos,
     marcar_notificacion_entrega,
+    notificar_usuarios,
     obtener_o_crear_entrega,
     rechazar_entrega,
 )
@@ -156,26 +158,27 @@ def _render_docente(session, usuario_id, periodo, corte, corte_numero, materias_
     entrega = buscar_entrega(session, usuario_id, periodo.id, corte.id)
 
     if entrega is not None and entrega.documentos:
-        st.markdown(f"**{ESTADO_LABEL.get(entrega.estado, entrega.estado)}** — {CORTE_NOMBRE[corte_numero]}")
-        if entrega.estado == "rechazado" and entrega.comentario_revision:
-            st.error(f"Motivo: {entrega.comentario_revision}")
-        if entrega.estado == "aprobado" and entrega.revisado_por:
-            st.caption(f"Aprobada por {entrega.revisado_por.nombre_completo} el {entrega.revisado_en.strftime('%d/%m/%Y %H:%M')}")
-        st.dataframe(_tabla_documentos(entrega), use_container_width=True, hide_index=True)
+        titulo = f"{ESTADO_LABEL.get(entrega.estado, entrega.estado)} — {CORTE_NOMBRE[corte_numero]} ({len(entrega.documentos)} documento(s))"
+        with st.expander(titulo, expanded=True):
+            if entrega.estado == "rechazado" and entrega.comentario_revision:
+                st.error(f"Motivo: {entrega.comentario_revision}")
+            if entrega.estado == "aprobado" and entrega.revisado_por:
+                st.caption(f"Aprobada por {entrega.revisado_por.nombre_completo} el {entrega.revisado_en.strftime('%d/%m/%Y %H:%M')}")
+            st.dataframe(_tabla_documentos(entrega), use_container_width=True, hide_index=True)
 
-        with st.expander("👁️ Ver un documento"):
-            opciones_ver = {f"{d.tipo_documento} — {d.nombre_archivo}": d for d in entrega.documentos}
-            elegido_ver = st.selectbox("Documento", list(opciones_ver.keys()), key="entregas_ver_doc_docente")
-            _previsualizar_documento(opciones_ver[elegido_ver])
+            with st.expander("👁️ Ver un documento"):
+                opciones_ver = {f"{d.tipo_documento} — {d.nombre_archivo}": d for d in entrega.documentos}
+                elegido_ver = st.selectbox("Documento", list(opciones_ver.keys()), key="entregas_ver_doc_docente")
+                _previsualizar_documento(opciones_ver[elegido_ver])
 
-        if entrega.estado != "aprobado":
-            with st.expander("🗑️ Borrar un documento"):
-                opciones = {f"{d.tipo_documento} — {d.nombre_archivo}": d.id for d in entrega.documentos}
-                elegido = st.selectbox("Documento", list(opciones.keys()), key="entregas_borrar_doc")
-                if st.button("Borrar documento seleccionado"):
-                    eliminar_documento_entrega(session, opciones[elegido])
-                    st.success("Documento borrado.")
-                    st.rerun()
+            if entrega.estado != "aprobado":
+                with st.expander("🗑️ Borrar un documento"):
+                    opciones = {f"{d.tipo_documento} — {d.nombre_archivo}": d.id for d in entrega.documentos}
+                    elegido = st.selectbox("Documento", list(opciones.keys()), key="entregas_borrar_doc")
+                    if st.button("Borrar documento seleccionado"):
+                        eliminar_documento_entrega(session, opciones[elegido])
+                        st.success("Documento borrado.")
+                        st.rerun()
 
     hay_documentos = entrega is not None and bool(entrega.documentos)
     with st.expander("➕ Subir documento", expanded=not hay_documentos):
@@ -276,6 +279,13 @@ def _aprobar(session, entrega_id, comentario):
         revisor_nombre, destinatarios,
     )
     marcar_notificacion_entrega(session, entrega_id, enviado, error)
+
+    mensaje = (
+        f"La entrega de {entrega.docente.nombre_completo} ({entrega.periodo.nombre}, {entrega.corte.nombre}) "
+        f"fue APROBADA por {revisor_nombre}."
+    )
+    notificar_usuarios(session, ids_personal_revisor(session) + [entrega.docente_id], mensaje, entrega_id=entrega.id)
+
     st.success("Entrega aprobada. Se notificó por correo al Director, al Secretario Académico, a la Secretaria del Programa y al docente.")
     st.rerun()
 
@@ -283,9 +293,16 @@ def _aprobar(session, entrega_id, comentario):
 def _rechazar(session, entrega_id, comentario):
     usuario_actual_id = st.session_state["usuario_id"]
     try:
-        rechazar_entrega(session, entrega_id, usuario_actual_id, comentario)
+        entrega = rechazar_entrega(session, entrega_id, usuario_actual_id, comentario)
     except ValueError as exc:
         st.error(str(exc))
         return
+
+    mensaje = (
+        f"La entrega de {entrega.docente.nombre_completo} ({entrega.periodo.nombre}, {entrega.corte.nombre}) "
+        f"fue RECHAZADA por {st.session_state['usuario_nombre']}: {comentario}"
+    )
+    notificar_usuarios(session, ids_personal_revisor(session) + [entrega.docente_id], mensaje, entrega_id=entrega.id)
+
     st.success("Entrega rechazada. El docente verá el motivo y podrá volver a cargar los documentos.")
     st.rerun()

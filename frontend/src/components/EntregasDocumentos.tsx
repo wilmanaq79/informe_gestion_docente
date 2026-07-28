@@ -313,10 +313,11 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
       {esDocente ? (
         <>
           {entregas.length > 0 && (
-            <div style={{ marginTop: "1rem" }}>
-              <p className={`mensaje ${ESTADO_LABEL[entregas[0].estado]?.clase ?? ""}`}>
-                {ESTADO_LABEL[entregas[0].estado]?.texto ?? entregas[0].estado} — {CORTE_NOMBRE[corte]}
-              </p>
+            <details className="detalle-interpretacion" open style={{ marginTop: "1rem" }}>
+              <summary>
+                {ESTADO_LABEL[entregas[0].estado]?.texto ?? entregas[0].estado} — {CORTE_NOMBRE[corte]} (
+                {entregas[0].documentos.length} documento{entregas[0].documentos.length === 1 ? "" : "s"})
+              </summary>
               {entregas[0].estado === "rechazado" && entregas[0].comentario_revision && (
                 <p className="mensaje mensaje--error">Motivo: {entregas[0].comentario_revision}</p>
               )}
@@ -326,7 +327,7 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
                 </p>
               )}
               {entregas[0].documentos.length > 0 && tablaDocumentos(entregas[0], entregas[0].estado !== "aprobado")}
-            </div>
+            </details>
           )}
 
           <details open={entregas.length === 0} style={{ marginTop: "1rem" }}>

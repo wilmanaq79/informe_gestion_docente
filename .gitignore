@@ -23,6 +23,9 @@ documentos/*.xlsx
 # firmadas, informes -- datos reales y sensibles, nunca de ejemplo)
 entregas_docentes/
 
+# Repositorio de silabos y programas de asignatura (archivos reales)
+repositorio_asignaturas/
+
 # Frontend (Node / Vite)
 frontend/node_modules/
 frontend/dist/

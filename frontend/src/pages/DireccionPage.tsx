@@ -4,6 +4,7 @@ import CalendarioAcademico from "../components/CalendarioAcademico";
 import DashboardInstitucional from "../components/DashboardInstitucional";
 import EntregasDocumentos from "../components/EntregasDocumentos";
 import Header from "../components/Header";
+import RepositorioAsignaturas from "../components/RepositorioAsignaturas";
 import { useAuth } from "../context/AuthContext";
 import { DocenteDetalle, DocenteResumen, Periodo, UsuarioAdmin, UsuarioCreate } from "../types";
 
@@ -429,9 +430,11 @@ export default function DireccionPage() {
           </section>
         )}
 
+        <EntregasDocumentos />
+
         <AdministracionUsuarios onUsuarioCreado={cargarDocentes} />
 
-        <EntregasDocumentos />
+        <RepositorioAsignaturas />
       </main>
     </>
   );

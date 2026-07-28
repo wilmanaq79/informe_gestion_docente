@@ -25,8 +25,10 @@ from db.repository import (
     eliminar_documento_entrega,
     emails_personal_revisor,
     entrega_con_detalle,
+    ids_personal_revisor,
     listar_entregas,
     marcar_notificacion_entrega,
+    notificar_usuarios,
     obtener_o_crear_entrega,
     rechazar_entrega,
 )
@@ -222,6 +224,13 @@ def aprobar(
     )
     marcar_notificacion_entrega(db, entrega_id, enviado, error)
 
+    mensaje = (
+        f"La entrega de {entrega.docente.nombre_completo} ({entrega.periodo.nombre}, {entrega.corte.nombre}) "
+        f"fue APROBADA por {usuario.nombre_completo}."
+    )
+    destinatarios_ids = ids_personal_revisor(db) + [entrega.docente_id]
+    notificar_usuarios(db, destinatarios_ids, mensaje, entrega_id=entrega.id)
+
     return _out(entrega_con_detalle(db, entrega_id))
 
 
@@ -233,7 +242,15 @@ def rechazar(
     usuario: Usuario = Depends(requiere_roles(*ROLES_REVISORES)),
 ):
     try:
-        rechazar_entrega(db, entrega_id, usuario.id, datos.comentario)
+        entrega = rechazar_entrega(db, entrega_id, usuario.id, datos.comentario)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+    mensaje = (
+        f"La entrega de {entrega.docente.nombre_completo} ({entrega.periodo.nombre}, {entrega.corte.nombre}) "
+        f"fue RECHAZADA por {usuario.nombre_completo}: {datos.comentario}"
+    )
+    destinatarios_ids = ids_personal_revisor(db) + [entrega.docente_id]
+    notificar_usuarios(db, destinatarios_ids, mensaje, entrega_id=entrega.id)
+
     return _out(entrega_con_detalle(db, entrega_id))

@@ -23,7 +23,7 @@ from db.repository import (
     listar_usuarios,
     resolver_periodo_ids,
 )
-from vistas import calendario, entregas
+from vistas import calendario, entregas, repositorio_asignaturas
 
 
 def _seccion_periodo_actual(session):
@@ -196,6 +196,9 @@ def render():
         session.close()
 
     st.divider()
+    entregas.render(st.session_state["usuario_id"], st.session_state["usuario_rol"])
+
+    st.divider()
     st.subheader("👤 Administración de usuarios")
     st.caption("Crea aquí las cuentas de los 27 docentes, el Director y el Secretario Académico.")
 
@@ -249,4 +252,4 @@ def render():
             session.close()
 
     st.divider()
-    entregas.render(st.session_state["usuario_id"], st.session_state["usuario_rol"])
+    repositorio_asignaturas.render(st.session_state["usuario_id"], st.session_state["usuario_rol"])

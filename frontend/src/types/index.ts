@@ -236,3 +236,26 @@ export interface Entrega {
   actualizado_en: string;
   documentos: DocumentoEntrega[];
 }
+
+export interface Notificacion {
+  id: number;
+  mensaje: string;
+  entrega_id: number | null;
+  leida: boolean;
+  creado_en: string;
+}
+
+export interface RepositorioAsignatura {
+  id: number;
+  asignatura: string;
+  docente_id: number | null;
+  docente_nombre: string | null;
+  silabo_nombre_archivo: string | null;
+  silabo_tamano_bytes: number | null;
+  programa_nombre_archivo: string | null;
+  programa_tamano_bytes: number | null;
+  creado_en: string;
+  actualizado_en: string;
+  creado_por_nombre: string | null;
+  actualizado_por_nombre: string | null;
+}

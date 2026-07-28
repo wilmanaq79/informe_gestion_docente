@@ -6,6 +6,8 @@ import {
   GraficoPromedioPorMateria,
 } from "./charts/InstitucionalCharts";
 import { Dashboard } from "../types";
+import EstadoVacio from "./ui/EstadoVacio";
+import Spinner from "./ui/Spinner";
 
 const ETIQUETA_ESTADO: Record<string, { texto: string; clase: string }> = {
   asegurado: { texto: "Ya aseguraron ganar la materia", clase: "proyeccion-item--ok" },
@@ -46,21 +48,23 @@ export default function DashboardInstitucional({ anio, semestre, corte }: Props)
 
   if (!datos) {
     return (
-      <section className="card">
-        <p className="texto-ayuda">Cargando dashboard institucional…</p>
+      <section className="card" id="dashboard-institucional">
+        <h2>📊 Dashboard institucional</h2>
+        <Spinner texto="Cargando dashboard institucional…" />
       </section>
     );
   }
 
   if (datos.kpis.total_materias === 0) {
     return (
-      <section className="card">
+      <section className="card" id="dashboard-institucional">
         <h2>📊 Dashboard institucional</h2>
-        <p className="mensaje mensaje--info">
-          Todavía no hay informes cargados por ningún docente para el Año/Semestre/Corte elegido. En cuanto
-          empiecen a procesar sus notas, aquí verás cómo evolucionan los estudiantes y las asignaturas de todo
-          el programa.
-        </p>
+        <EstadoVacio
+          icono="📊"
+          texto="Todavía no hay informes cargados por ningún docente para el Año/Semestre/Corte elegido. En
+          cuanto empiecen a procesar sus notas, aquí verás cómo evolucionan los estudiantes y las asignaturas
+          de todo el programa."
+        />
         <p className="texto-ayuda">Generado: {datos.generado_en}</p>
       </section>
     );
@@ -69,7 +73,7 @@ export default function DashboardInstitucional({ anio, semestre, corte }: Props)
   const { kpis } = datos;
 
   return (
-    <section className="card">
+    <section className="card" id="dashboard-institucional">
       <h2>📊 Dashboard institucional</h2>
       <p className="texto-ayuda">
         Cómo va evolucionando el rendimiento de los estudiantes y las asignaturas en todo el Programa de

@@ -1,20 +1,35 @@
 :root {
-  --azul: #2a78d6;
+  /* Colores institucionales de la Universidad del Pacífico (tomados del
+     escudo: azul, verde/teal y dorado), en una version mas ligera para
+     uso extenso en interfaz -- no los tonos saturados del escudo tal cual.
+     --azul/--verde/--dorado se adaptan por tema (texto, enlaces, foco,
+     bordes); --marca-* son fijos en ambos temas porque siempre llevan
+     texto blanco encima (boton primario, barra de acento del header) y
+     deben mantener buen contraste sin importar el tema. */
+  --azul: #2f7dc4;
+  --verde: #22a67a;
+  --dorado: #f2b705;
+  --marca-azul: #1768ad;
+  --marca-verde: #0f7a56;
+  --marca-dorado: #f2b705;
   --naranja: #eb6834;
-  --verde: #1baf7a;
   --rojo: #d03b3b;
   --muted: #6b6a66;
   --surface: #ffffff;
-  --surface-2: #f7f7f5;
+  --surface-2: #f7f9f8;
   --border: #e1e0d9;
   --texto: #16181d;
   --texto-secundario: #52514e;
   --sombra: 0 1px 2px rgba(11, 11, 11, 0.06), 0 4px 12px rgba(11, 11, 11, 0.04);
+  --gradiente-marca: linear-gradient(135deg, var(--marca-azul), var(--marca-verde));
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
+    --azul: #5b9fd9;
+    --verde: #3ecf99;
+    --dorado: #f5d76e;
     --surface: #17181a;
     --surface-2: #1e2023;
     --border: #2c2c2a;
@@ -35,12 +50,37 @@ body {
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   background: var(--surface-2);
   color: var(--texto);
+  line-height: 1.5;
+}
+
+h1, h2, h3, h4 {
+  line-height: 1.3;
+}
+
+a {
+  color: var(--azul);
+}
+
+:focus-visible {
+  outline: 2px solid var(--azul);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
 .app-header {
+  position: relative;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   padding: 1rem 1.5rem;
+}
+
+.app-header__acento {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--marca-azul), var(--marca-verde) 65%, var(--marca-dorado));
 }
 
 .app-header__brand {
@@ -83,6 +123,19 @@ body {
   color: var(--texto-secundario);
 }
 
+.app-header__piloto {
+  display: inline-block;
+  margin-top: 0.3rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--marca-azul);
+  background: color-mix(in srgb, var(--marca-azul) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--marca-azul) 30%, transparent);
+  border-radius: 999px;
+  padding: 0.15rem 0.7rem;
+}
+
 .app-header__user {
   display: flex;
   justify-content: space-between;
@@ -90,6 +143,12 @@ body {
   max-width: 960px;
   margin: 0.75rem auto 0;
   font-size: 0.95rem;
+}
+
+.app-header__acciones {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
 }
 
 .page {
@@ -102,10 +161,13 @@ body {
 }
 
 .page--centrado {
-  min-height: 60vh;
+  min-height: calc(100vh - 5.5rem);
   display: flex;
   align-items: center;
   justify-content: center;
+  background:
+    radial-gradient(circle at 15% 20%, color-mix(in srgb, var(--azul) 10%, transparent), transparent 55%),
+    radial-gradient(circle at 85% 85%, color-mix(in srgb, var(--verde) 10%, transparent), transparent 55%);
 }
 
 .card {
@@ -114,10 +176,13 @@ body {
   border-radius: 12px;
   padding: 1.25rem 1.5rem;
   box-shadow: var(--sombra);
+  scroll-margin-top: 4.5rem;
 }
 
 .card h2 {
   margin-top: 0;
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--border);
 }
 
 .card--login {
@@ -126,6 +191,13 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  border-radius: 16px;
+  box-shadow: 0 10px 32px color-mix(in srgb, var(--azul) 14%, transparent), 0 2px 6px rgba(11, 11, 11, 0.06);
+}
+
+.card--login h2 {
+  border-bottom: none;
+  padding-bottom: 0;
 }
 
 label {
@@ -145,6 +217,43 @@ select {
   border-radius: 8px;
   background: var(--surface);
   color: var(--texto);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.campo-icono {
+  position: relative;
+}
+
+.campo-icono input {
+  width: 100%;
+  padding-left: 2.1rem;
+}
+
+.campo-icono__icono {
+  position: absolute;
+  left: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+input:hover,
+select:hover {
+  border-color: color-mix(in srgb, var(--azul) 35%, var(--border));
+}
+
+input:focus,
+select:focus {
+  outline: none;
+  border-color: var(--azul);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--azul) 18%, transparent);
+}
+
+input:disabled,
+select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .campo-archivo input {
@@ -158,6 +267,7 @@ select {
   border: none;
   cursor: pointer;
   font-weight: 600;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.05s ease, box-shadow 0.15s ease;
 }
 
 .btn:disabled {
@@ -165,15 +275,32 @@ select {
   cursor: not-allowed;
 }
 
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
 .btn--primario {
-  background: var(--azul);
+  background: var(--gradiente-marca);
   color: white;
+}
+
+.btn--primario:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+.btn--primario:disabled {
+  filter: grayscale(0.3);
 }
 
 .btn--secondary {
   background: var(--surface-2);
   color: var(--texto);
   border: 1px solid var(--border);
+}
+
+.btn--secondary:hover:not(:disabled) {
+  background: var(--surface);
+  border-color: color-mix(in srgb, var(--azul) 35%, var(--border));
 }
 
 .btn--peligro {
@@ -186,6 +313,7 @@ select {
 
 .btn--peligro:hover:not(:disabled) {
   background: color-mix(in srgb, var(--rojo) 12%, transparent);
+  border-color: var(--rojo);
 }
 
 .btn--chico {
@@ -220,11 +348,17 @@ select {
   cursor: pointer;
   font-size: 0.9rem;
   margin: 0;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.chip:hover {
+  border-color: color-mix(in srgb, var(--azul) 45%, var(--border));
 }
 
 .chip--activo {
   border-color: var(--azul);
   background: color-mix(in srgb, var(--azul) 12%, transparent);
+  font-weight: 600;
 }
 
 .panel-pdf {
@@ -424,4 +558,99 @@ select {
   gap: 0.75rem;
   align-items: end;
   margin-top: 0.75rem;
+}
+
+/* --- Spinner (estados de carga) --- */
+
+@keyframes girar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid color-mix(in srgb, var(--texto-secundario) 30%, transparent);
+  border-top-color: var(--azul);
+  border-radius: 50%;
+  animation: girar 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.cargando-linea {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  color: var(--texto-secundario);
+  font-size: 0.9rem;
+  padding: 0.5rem 0;
+}
+
+/* --- Estado vacio (listas sin datos) --- */
+
+.estado-vacio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  text-align: center;
+  padding: 1.75rem 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  color: var(--texto-secundario);
+  background: var(--surface-2);
+}
+
+.estado-vacio__icono {
+  font-size: 1.6rem;
+  opacity: 0.75;
+}
+
+.estado-vacio__texto {
+  font-size: 0.9rem;
+  max-width: 42ch;
+}
+
+/* --- Navegacion rapida por secciones (paginas largas) --- */
+
+.seccion-nav {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.4rem;
+  overflow-x: auto;
+  width: 100%;
+  padding: 0.6rem 1rem;
+  background: color-mix(in srgb, var(--surface-2) 92%, transparent);
+  border-bottom: 1px solid var(--border);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.seccion-nav::-webkit-scrollbar {
+  height: 4px;
+}
+
+.seccion-nav__link {
+  flex-shrink: 0;
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--texto-secundario);
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.seccion-nav__link:hover {
+  border-color: var(--azul);
+  color: var(--azul);
 }

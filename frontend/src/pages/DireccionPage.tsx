@@ -5,10 +5,23 @@ import DashboardInstitucional from "../components/DashboardInstitucional";
 import EntregasDocumentos from "../components/EntregasDocumentos";
 import Header from "../components/Header";
 import RepositorioAsignaturas from "../components/RepositorioAsignaturas";
+import EstadoVacio from "../components/ui/EstadoVacio";
+import SeccionNav from "../components/ui/SeccionNav";
 import { useAuth } from "../context/AuthContext";
 import { DocenteDetalle, DocenteResumen, Periodo, UsuarioAdmin, UsuarioCreate } from "../types";
 
 const CORTE_NOMBRE: Record<number, string> = { 1: "Corte 1", 2: "Corte 2", 3: "Corte 3 / Final" };
+
+const SECCIONES_NAV = [
+  { id: "alcance", etiqueta: "🗓️ Año/Semestre/Corte" },
+  { id: "periodo-actual", etiqueta: "🟢 Periodo actual" },
+  { id: "calendario", etiqueta: "🗓️ Calendario académico" },
+  { id: "dashboard-institucional", etiqueta: "📊 Dashboard" },
+  { id: "docentes", etiqueta: "👥 Docentes" },
+  { id: "entregas", etiqueta: "📎 Entregas" },
+  { id: "administracion-usuarios", etiqueta: "👤 Usuarios" },
+  { id: "repositorio", etiqueta: "📚 Repositorio" },
+];
 
 export default function DireccionPage() {
   const { usuario } = useAuth();
@@ -190,6 +203,7 @@ export default function DireccionPage() {
   return (
     <>
       <Header />
+      <SeccionNav secciones={SECCIONES_NAV} />
       <main className="page">
         <p className="texto-ayuda">
           Resumen de todos los docentes del Programa de Ingeniería de Sistemas, con acceso al detalle e
@@ -198,7 +212,7 @@ export default function DireccionPage() {
 
         {error && <p className="mensaje mensaje--error">{error}</p>}
 
-        <section className="card">
+        <section className="card" id="alcance">
           <h2>🗓️ Año · Semestre · Corte</h2>
           <p className="texto-ayuda">
             Elige el alcance de los informes consolidados y el dashboard. Cada Año tiene 2 semestres y cada
@@ -242,7 +256,7 @@ export default function DireccionPage() {
           </div>
         </section>
 
-        <section className="card">
+        <section className="card" id="periodo-actual">
           <h2>🟢 Periodo actual del sistema</h2>
           <p className="texto-ayuda">
             Es el periodo donde caen las notas que los docentes cargan hoy. Al iniciar un semestre nuevo,
@@ -326,12 +340,14 @@ export default function DireccionPage() {
           </section>
         )}
 
-        <section className="card">
+        <section className="card" id="docentes">
+          <h2>👥 Docentes</h2>
           {docentes.length === 0 ? (
-            <p className="mensaje mensaje--info">
-              Todavía no hay docentes registrados. Usa "Administración de usuarios" más abajo para crear sus
-              cuentas.
-            </p>
+            <EstadoVacio
+              icono="👥"
+              texto='Todavía no hay docentes registrados. Usa "Administración de usuarios" más abajo para crear
+              sus cuentas.'
+            />
           ) : (
             <div className="tabla-scroll">
               <table className="tabla">
@@ -375,7 +391,7 @@ export default function DireccionPage() {
                     {a.grupo ? ` — Grupo ${a.grupo}` : ""}
                   </summary>
                   {a.informes.length === 0 ? (
-                    <p>Sin informes cargados todavía.</p>
+                    <p className="texto-ayuda">Sin informes cargados todavía.</p>
                   ) : (
                     <div className="tabla-scroll">
                       <table className="tabla">
@@ -484,7 +500,7 @@ function AdministracionUsuarios({ onUsuarioCreado }: { onUsuarioCreado: () => vo
   }
 
   return (
-    <section className="card">
+    <section className="card" id="administracion-usuarios">
       <h2>👤 Administración de usuarios</h2>
       <p className="texto-ayuda">Crea aquí las cuentas de los 27 docentes, el Director y el Secretario Académico.</p>
 

@@ -12,7 +12,17 @@ from pathlib import Path
 
 import streamlit as st
 
-from vistas import calendario, direccion, docente, entregas, login, notificaciones, repositorio_asignaturas
+from db.database import get_session
+from vistas import (
+    calendario,
+    consentimiento,
+    direccion,
+    docente,
+    entregas,
+    login,
+    notificaciones,
+    repositorio_asignaturas,
+)
 
 RAIZ = Path(__file__).resolve().parent
 ESCUDO_UNPA = RAIZ / "assets" / "escudo_unpa.jpg"
@@ -63,6 +73,15 @@ if "usuario_id" not in st.session_state:
     login.render()
 else:
     mostrar_barra_usuario()
+
+    session = get_session()
+    try:
+        acepto_politica = consentimiento.render(session, st.session_state["usuario_id"])
+    finally:
+        session.close()
+    if not acepto_politica:
+        st.stop()
+
     rol = st.session_state["usuario_rol"]
     notificaciones.render(st.session_state["usuario_id"])
     st.divider()

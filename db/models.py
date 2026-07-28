@@ -103,6 +103,9 @@ class Usuario(Base):
     rol_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), nullable=False)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    acepto_tratamiento_datos: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    fecha_aceptacion_tratamiento: Mapped[datetime | None] = mapped_column(DateTime)
+    version_politica_aceptada: Mapped[str | None] = mapped_column(String(20))
 
     rol: Mapped["Rol"] = relationship(back_populates="usuarios")
     asignaciones: Mapped[list["AsignacionAcademica"]] = relationship(back_populates="docente")
@@ -301,6 +304,25 @@ class Notificacion(Base):
     entrega_id: Mapped[int | None] = mapped_column(ForeignKey("entregas.id", ondelete="SET NULL"))
     leida: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    usuario: Mapped["Usuario"] = relationship()
+
+
+class AceptacionPoliticaTratamiento(Base):
+    """Bitacora inmutable de cada aceptacion del Aviso de Privacidad y
+    Autorizacion para el Tratamiento de Datos Personales (Ley 1581 de
+    2012). A diferencia de los campos en Usuario (que solo reflejan el
+    estado MAS RECIENTE), aqui queda un registro por cada aceptacion --
+    incluidas las de versiones anteriores de la politica -- como prueba
+    de la autorizacion otorgada."""
+
+    __tablename__ = "aceptaciones_politica_tratamiento"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False)
+    version_politica: Mapped[str] = mapped_column(String(20), nullable=False)
+    aceptado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    direccion_ip: Mapped[str | None] = mapped_column(String(45))
 
     usuario: Mapped["Usuario"] = relationship()
 

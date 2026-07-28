@@ -7,12 +7,14 @@ Ejecutar (desde la raíz del proyecto):
 
 Documentación interactiva: http://localhost:8000/docs
 """
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.api.deps import requiere_consentimiento
 from backend.api.routers import (
     auth,
     calendario,
+    consentimiento,
     dashboard,
     docentes,
     entregas,
@@ -42,17 +44,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# auth y consentimiento quedan SIN el gate de consentimiento: deben
+# seguir funcionando antes de que el usuario acepte (login, /auth/me,
+# consultar y aceptar la politica). Todos los demas routers de negocio
+# exigen que el usuario ya haya aceptado la version vigente.
 app.include_router(auth.router)
-app.include_router(informes.router)
-app.include_router(docentes.router)
-app.include_router(usuarios.router)
-app.include_router(reportes.router)
-app.include_router(dashboard.router)
-app.include_router(periodos.router)
-app.include_router(calendario.router)
-app.include_router(entregas.router)
-app.include_router(notificaciones.router)
-app.include_router(repositorio_asignaturas.router)
+app.include_router(consentimiento.router)
+
+_gate = [Depends(requiere_consentimiento)]
+app.include_router(informes.router, dependencies=_gate)
+app.include_router(docentes.router, dependencies=_gate)
+app.include_router(usuarios.router, dependencies=_gate)
+app.include_router(reportes.router, dependencies=_gate)
+app.include_router(dashboard.router, dependencies=_gate)
+app.include_router(periodos.router, dependencies=_gate)
+app.include_router(calendario.router, dependencies=_gate)
+app.include_router(entregas.router, dependencies=_gate)
+app.include_router(notificaciones.router, dependencies=_gate)
+app.include_router(repositorio_asignaturas.router, dependencies=_gate)
 
 
 @app.get("/api/health", tags=["health"])

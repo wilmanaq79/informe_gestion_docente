@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import AvisoPrivacidad from "./components/AvisoPrivacidad";
 import ProtectedRoute from "./components/ProtectedRoute";
 import { useAuth } from "./context/AuthContext";
 import DireccionPage from "./pages/DireccionPage";
@@ -9,6 +10,7 @@ import SecretariaProgramaPage from "./pages/SecretariaProgramaPage";
 function InicioSegunRol() {
   const { usuario } = useAuth();
   if (!usuario) return <Navigate to="/login" replace />;
+  if (!usuario.acepto_tratamiento_datos) return <AvisoPrivacidad />;
   if (usuario.rol === "docente") return <DocentePage />;
   if (usuario.rol === "secretaria_programa") return <SecretariaProgramaPage />;
   return <DireccionPage />;

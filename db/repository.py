@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 
 from agente_notas.almacenamiento import eliminar_archivo
 from db.models import (
+    AceptacionPoliticaTratamiento,
     AsignacionAcademica,
     Corte,
     DocumentoEntrega,
@@ -208,6 +209,31 @@ def crear_usuario(session, nombre_completo, cedula, email, username, password_ha
         activo=True,
     )
     session.add(usuario)
+    session.commit()
+    session.refresh(usuario)
+    return usuario
+
+
+def registrar_aceptacion_tratamiento_datos(
+    session, usuario_id: int, version: str, direccion_ip: str | None = None
+) -> Usuario:
+    """Registra la aceptacion vigente en Usuario (estado mas reciente,
+    de lectura rapida) Y ademas una fila en la bitacora
+    AceptacionPoliticaTratamiento (historico inmutable, incluso de
+    versiones anteriores) como prueba de la autorizacion otorgada."""
+    usuario = session.get(Usuario, usuario_id)
+    ahora = datetime.utcnow()
+    usuario.acepto_tratamiento_datos = True
+    usuario.fecha_aceptacion_tratamiento = ahora
+    usuario.version_politica_aceptada = version
+    session.add(
+        AceptacionPoliticaTratamiento(
+            usuario_id=usuario_id,
+            version_politica=version,
+            aceptado_en=ahora,
+            direccion_ip=direccion_ip,
+        )
+    )
     session.commit()
     session.refresh(usuario)
     return usuario

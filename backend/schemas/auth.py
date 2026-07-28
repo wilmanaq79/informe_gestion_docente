@@ -12,6 +12,7 @@ class UsuarioOut(BaseModel):
     username: str
     rol: str
     activo: bool
+    acepto_tratamiento_datos: bool
 
 
 class TokenResponse(BaseModel):

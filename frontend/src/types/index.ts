@@ -4,6 +4,13 @@ export interface Usuario {
   username: string;
   rol: "docente" | "director" | "secretario" | "secretaria_programa";
   activo: boolean;
+  acepto_tratamiento_datos: boolean;
+}
+
+export interface Politica {
+  version: string;
+  titulo: string;
+  texto: string;
 }
 
 export interface LoginResponse {

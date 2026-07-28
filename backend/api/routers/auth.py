@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from agente_notas.aviso_privacidad import acepto_politica_vigente
 from backend.api.deps import get_current_user, get_db
 from backend.core.security import crear_access_token
 from backend.schemas.auth import LoginRequest, TokenResponse, UsuarioOut
@@ -17,6 +18,7 @@ def _usuario_out(usuario: Usuario) -> UsuarioOut:
         username=usuario.username,
         rol=usuario.rol.nombre,
         activo=usuario.activo,
+        acepto_tratamiento_datos=acepto_politica_vigente(usuario),
     )
 
 

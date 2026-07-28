@@ -4,7 +4,8 @@ Gestion y Autoevaluacion Docente -- Programa de Ingenieria de Sistemas,
 Universidad del Pacifico.
 
 Tablas de referencia/catalogo (no cambian con el uso diario):
-    roles, cortes, periodos_academicos, eventos_calendario
+    roles, cortes, periodos_academicos, eventos_calendario,
+    repositorio_asignaturas (silabos y programas de asignatura)
 
 Tablas operativas:
     usuarios              -- los 27 docentes + director + secretario
@@ -302,3 +303,35 @@ class Notificacion(Base):
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     usuario: Mapped["Usuario"] = relationship()
+
+
+# --- Repositorio de silabos y programas de asignatura ------------------------
+
+class RepositorioAsignatura(Base):
+    """Repositorio de consulta del sílabo y el programa de asignatura de
+    cada materia. Cualquier rol puede consultar/descargar; solo
+    Director, Secretario Académico y Secretaria del Programa pueden
+    cargar, actualizar, reasignar el docente o eliminar."""
+
+    __tablename__ = "repositorio_asignaturas"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    asignatura: Mapped[str] = mapped_column(String(150), unique=True, nullable=False)
+    docente_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))  # quien la dicta actualmente
+
+    silabo_nombre_archivo: Mapped[str | None] = mapped_column(String(255))
+    silabo_ruta_archivo: Mapped[str | None] = mapped_column(String(500))
+    silabo_tamano_bytes: Mapped[int | None]
+
+    programa_nombre_archivo: Mapped[str | None] = mapped_column(String(255))
+    programa_ruta_archivo: Mapped[str | None] = mapped_column(String(500))
+    programa_tamano_bytes: Mapped[int | None]
+
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    actualizado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    creado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    actualizado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+
+    docente: Mapped["Usuario | None"] = relationship(foreign_keys=[docente_id])
+    creado_por: Mapped["Usuario | None"] = relationship(foreign_keys=[creado_por_id])
+    actualizado_por: Mapped["Usuario | None"] = relationship(foreign_keys=[actualizado_por_id])

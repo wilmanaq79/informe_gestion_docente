@@ -24,7 +24,10 @@ def _out(u: Usuario) -> UsuarioOut:
 
 
 @router.get("", response_model=list[UsuarioOut])
-def listar(db: Session = Depends(get_db), _usuario=Depends(requiere_roles("director", "secretario"))):
+def listar(
+    db: Session = Depends(get_db),
+    _usuario=Depends(requiere_roles("director", "secretario", "secretaria_programa")),
+):
     return [_out(u) for u in listar_usuarios(db)]
 
 

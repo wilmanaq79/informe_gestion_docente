@@ -1,7 +1,10 @@
-"""Almacenamiento en disco de los documentos que los docentes entregan
-(listas de asistencia, notas firmadas, informe de gestión docente, etc.).
-Los archivos NUNCA se versionan (ver .gitignore) -- solo su ruta y
-metadatos quedan en la base de datos (db.models.DocumentoEntrega)."""
+"""Almacenamiento en disco de archivos que la app guarda fuera de la base
+de datos: los documentos que los docentes entregan (listas de
+asistencia, notas firmadas, informe de gestión docente, etc.) y los
+sílabos/programas de asignatura del repositorio de consulta. Los
+archivos NUNCA se versionan (ver .gitignore) -- solo su ruta y metadatos
+quedan en la base de datos (db.models.DocumentoEntrega /
+db.models.RepositorioAsignatura)."""
 import re
 import unicodedata
 import uuid
@@ -9,7 +12,9 @@ from datetime import datetime
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
-DIRECTORIO_BASE = RAIZ / "entregas_docentes"
+DIRECTORIO_ENTREGAS = RAIZ / "entregas_docentes"
+DIRECTORIO_REPOSITORIO = RAIZ / "repositorio_asignaturas"
+DIRECTORIOS_PERMITIDOS = (DIRECTORIO_ENTREGAS, DIRECTORIO_REPOSITORIO)
 
 
 def _sanitizar(nombre: str) -> str:
@@ -20,6 +25,12 @@ def _sanitizar(nombre: str) -> str:
     return limpio[:120] or "archivo"
 
 
+def _nombre_archivo_unico(prefijo: str, nombre_original: str) -> str:
+    marca_tiempo = datetime.now().strftime("%Y%m%d%H%M%S")
+    sufijo = uuid.uuid4().hex[:8]
+    return f"{prefijo}_{marca_tiempo}_{sufijo}_{_sanitizar(nombre_original)}"
+
+
 def guardar_archivo_entrega(
     periodo_nombre: str, docente_id: int, corte_numero: int, tipo_documento: str, nombre_original: str, contenido: bytes
 ) -> tuple[str, int]:
@@ -27,14 +38,24 @@ def guardar_archivo_entrega(
     periodo/docente/corte y devuelve (ruta_relativa_al_proyecto,
     tamaño_en_bytes). La ruta relativa es lo que se guarda en
     DocumentoEntrega.ruta_archivo."""
-    carpeta = DIRECTORIO_BASE / periodo_nombre / f"docente_{docente_id}" / f"corte_{corte_numero}"
+    carpeta = DIRECTORIO_ENTREGAS / periodo_nombre / f"docente_{docente_id}" / f"corte_{corte_numero}"
     carpeta.mkdir(parents=True, exist_ok=True)
 
-    marca_tiempo = datetime.now().strftime("%Y%m%d%H%M%S")
-    sufijo = uuid.uuid4().hex[:8]
-    nombre_archivo = f"{tipo_documento}_{marca_tiempo}_{sufijo}_{_sanitizar(nombre_original)}"
+    ruta_absoluta = carpeta / _nombre_archivo_unico(tipo_documento, nombre_original)
+    ruta_absoluta.write_bytes(contenido)
 
-    ruta_absoluta = carpeta / nombre_archivo
+    ruta_relativa = ruta_absoluta.relative_to(RAIZ).as_posix()
+    return ruta_relativa, len(contenido)
+
+
+def guardar_archivo_repositorio(asignatura_id: int, tipo: str, nombre_original: str, contenido: bytes) -> tuple[str, int]:
+    """Guarda el sílabo o el programa de asignatura de una materia del
+    repositorio de consulta. 'tipo' es 'silabo' o 'programa'. Devuelve
+    (ruta_relativa_al_proyecto, tamaño_en_bytes)."""
+    carpeta = DIRECTORIO_REPOSITORIO / f"asignatura_{asignatura_id}"
+    carpeta.mkdir(parents=True, exist_ok=True)
+
+    ruta_absoluta = carpeta / _nombre_archivo_unico(tipo, nombre_original)
     ruta_absoluta.write_bytes(contenido)
 
     ruta_relativa = ruta_absoluta.relative_to(RAIZ).as_posix()
@@ -43,15 +64,18 @@ def guardar_archivo_entrega(
 
 def ruta_absoluta_segura(ruta_relativa: str) -> Path | None:
     """Resuelve una ruta guardada en BD a una ruta absoluta, verificando
-    que quede dentro de DIRECTORIO_BASE (nunca confiar en una ruta a
-    ciegas, aunque venga de nuestra propia BD). Devuelve None si el
-    archivo no existe o la ruta intenta salir del directorio base."""
+    que quede dentro de uno de los DIRECTORIOS_PERMITIDOS (nunca confiar
+    en una ruta a ciegas, aunque venga de nuestra propia BD). Devuelve
+    None si el archivo no existe o la ruta intenta salir de esos
+    directorios."""
     candidato = (RAIZ / ruta_relativa).resolve()
-    try:
-        candidato.relative_to(DIRECTORIO_BASE.resolve())
-    except ValueError:
-        return None
-    return candidato if candidato.is_file() else None
+    for base in DIRECTORIOS_PERMITIDOS:
+        try:
+            candidato.relative_to(base.resolve())
+        except ValueError:
+            continue
+        return candidato if candidato.is_file() else None
+    return None
 
 
 def eliminar_archivo(ruta_relativa: str) -> None:

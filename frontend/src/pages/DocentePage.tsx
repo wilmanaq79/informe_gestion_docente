@@ -3,6 +3,7 @@ import { api, mensajeError } from "../api/client";
 import CalendarioAcademico from "../components/CalendarioAcademico";
 import EntregasDocumentos from "../components/EntregasDocumentos";
 import Header from "../components/Header";
+import RepositorioAsignaturas from "../components/RepositorioAsignaturas";
 import { GraficoDispersion, GraficoPromedioVsMejor, GraficoRanking } from "../components/charts/DashboardCharts";
 import { EstudianteNota, PdfPreview, ProcesarResponse, ResumenMateria } from "../types";
 
@@ -448,6 +449,8 @@ export default function DocentePage() {
         )}
 
         <EntregasDocumentos materiasDisponibles={materiasDisponibles} />
+
+        <RepositorioAsignaturas />
       </main>
     </>
   );

@@ -17,6 +17,7 @@ from db.models import (
     NotaEstudiante,
     Notificacion,
     PeriodoAcademico,
+    RepositorioAsignatura,
     Rol,
     Usuario,
 )
@@ -720,3 +721,148 @@ def marcar_todas_notificaciones_leidas(session, usuario_id: int) -> None:
         Notificacion.usuario_id == usuario_id, Notificacion.leida.is_(False)
     ).update({Notificacion.leida: True})
     session.commit()
+
+
+# --- Repositorio de silabos y programas de asignatura ------------------------
+
+def listar_repositorio_asignaturas(session, busqueda: str | None = None) -> list[RepositorioAsignatura]:
+    """busqueda: coincidencia parcial por nombre de asignatura o nombre
+    del docente que la dicta."""
+    stmt = select(RepositorioAsignatura).options(
+        selectinload(RepositorioAsignatura.docente),
+        selectinload(RepositorioAsignatura.creado_por),
+        selectinload(RepositorioAsignatura.actualizado_por),
+    )
+    if busqueda:
+        patron = f"%{busqueda.strip()}%"
+        stmt = stmt.outerjoin(Usuario, RepositorioAsignatura.docente_id == Usuario.id).where(
+            RepositorioAsignatura.asignatura.ilike(patron) | Usuario.nombre_completo.ilike(patron)
+        )
+    stmt = stmt.order_by(RepositorioAsignatura.asignatura)
+    return list(session.scalars(stmt).unique())
+
+
+def repositorio_asignatura_por_id(session, id_: int) -> RepositorioAsignatura | None:
+    stmt = (
+        select(RepositorioAsignatura)
+        .where(RepositorioAsignatura.id == id_)
+        .options(
+            selectinload(RepositorioAsignatura.docente),
+            selectinload(RepositorioAsignatura.creado_por),
+            selectinload(RepositorioAsignatura.actualizado_por),
+        )
+    )
+    return session.scalar(stmt)
+
+
+def crear_repositorio_asignatura(
+    session, asignatura: str, docente_id: int | None, creado_por_id: int
+) -> RepositorioAsignatura:
+    entrada = RepositorioAsignatura(
+        asignatura=asignatura.strip(),
+        docente_id=docente_id,
+        creado_por_id=creado_por_id,
+        actualizado_por_id=creado_por_id,
+    )
+    session.add(entrada)
+    session.commit()
+    session.refresh(entrada)
+    return entrada
+
+
+def actualizar_repositorio_asignatura(
+    session,
+    id_: int,
+    actualizado_por_id: int,
+    asignatura: str | None = None,
+    docente_id: int | None = -1,
+) -> RepositorioAsignatura | None:
+    """docente_id: -1 (valor centinela, no None) significa 'no tocar
+    este campo'; None significa 'quitar el docente asignado' -- para
+    poder distinguir 'reasignar a nadie' de 'no reasignar'. Así se
+    resuelve el punto de que el docente puede cambiar de asignatura:
+    el Director/Secretario reasigna aquí quién la dicta ahora."""
+    entrada = session.get(RepositorioAsignatura, id_)
+    if entrada is None:
+        return None
+    if asignatura is not None:
+        entrada.asignatura = asignatura.strip()
+    if docente_id != -1:
+        entrada.docente_id = docente_id
+    entrada.actualizado_por_id = actualizado_por_id
+    session.commit()
+    session.refresh(entrada)
+    return entrada
+
+
+def adjuntar_silabo(
+    session, id_: int, nombre_archivo: str, ruta_archivo: str, tamano_bytes: int, actualizado_por_id: int
+) -> RepositorioAsignatura | None:
+    entrada = session.get(RepositorioAsignatura, id_)
+    if entrada is None:
+        return None
+    if entrada.silabo_ruta_archivo:
+        eliminar_archivo(entrada.silabo_ruta_archivo)
+    entrada.silabo_nombre_archivo = nombre_archivo
+    entrada.silabo_ruta_archivo = ruta_archivo
+    entrada.silabo_tamano_bytes = tamano_bytes
+    entrada.actualizado_por_id = actualizado_por_id
+    session.commit()
+    session.refresh(entrada)
+    return entrada
+
+
+def adjuntar_programa(
+    session, id_: int, nombre_archivo: str, ruta_archivo: str, tamano_bytes: int, actualizado_por_id: int
+) -> RepositorioAsignatura | None:
+    entrada = session.get(RepositorioAsignatura, id_)
+    if entrada is None:
+        return None
+    if entrada.programa_ruta_archivo:
+        eliminar_archivo(entrada.programa_ruta_archivo)
+    entrada.programa_nombre_archivo = nombre_archivo
+    entrada.programa_ruta_archivo = ruta_archivo
+    entrada.programa_tamano_bytes = tamano_bytes
+    entrada.actualizado_por_id = actualizado_por_id
+    session.commit()
+    session.refresh(entrada)
+    return entrada
+
+
+def quitar_silabo(session, id_: int, actualizado_por_id: int) -> bool:
+    entrada = session.get(RepositorioAsignatura, id_)
+    if entrada is None or not entrada.silabo_ruta_archivo:
+        return False
+    eliminar_archivo(entrada.silabo_ruta_archivo)
+    entrada.silabo_nombre_archivo = None
+    entrada.silabo_ruta_archivo = None
+    entrada.silabo_tamano_bytes = None
+    entrada.actualizado_por_id = actualizado_por_id
+    session.commit()
+    return True
+
+
+def quitar_programa(session, id_: int, actualizado_por_id: int) -> bool:
+    entrada = session.get(RepositorioAsignatura, id_)
+    if entrada is None or not entrada.programa_ruta_archivo:
+        return False
+    eliminar_archivo(entrada.programa_ruta_archivo)
+    entrada.programa_nombre_archivo = None
+    entrada.programa_ruta_archivo = None
+    entrada.programa_tamano_bytes = None
+    entrada.actualizado_por_id = actualizado_por_id
+    session.commit()
+    return True
+
+
+def eliminar_repositorio_asignatura(session, id_: int) -> bool:
+    entrada = session.get(RepositorioAsignatura, id_)
+    if entrada is None:
+        return False
+    if entrada.silabo_ruta_archivo:
+        eliminar_archivo(entrada.silabo_ruta_archivo)
+    if entrada.programa_ruta_archivo:
+        eliminar_archivo(entrada.programa_ruta_archivo)
+    session.delete(entrada)
+    session.commit()
+    return True

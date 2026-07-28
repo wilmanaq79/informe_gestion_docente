@@ -31,7 +31,7 @@ from db.repository import (
     obtener_o_crear_asignacion,
     periodo_activo,
 )
-from vistas import calendario, entregas
+from vistas import calendario, entregas, repositorio_asignaturas
 
 PALETA = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
 MUTED = "#898781"
@@ -481,3 +481,6 @@ def render(usuario_id: int):
 
     st.divider()
     entregas.render(usuario_id, "docente", materias_disponibles=materias_disponibles)
+
+    st.divider()
+    repositorio_asignaturas.render(usuario_id, "docente")

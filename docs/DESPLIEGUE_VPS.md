@@ -86,7 +86,7 @@ Dos opciones, cualquiera sirve:
 
 De cualquier forma, esta carpeta es la que debes incluir en tus backups (sección 12).
 
----
+----------
 
 ## 1. Preparación inicial del servidor (una sola vez para todo el VPS)
 

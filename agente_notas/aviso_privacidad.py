@@ -8,9 +8,15 @@ Mantener este texto en un solo lugar evita que las dos interfaces
 (React y Streamlit) queden desincronizadas.
 
 `VERSION_POLITICA` debe incrementarse cada vez que cambie el texto de
-fondo. El gate de consentimiento (backend y ambos frontends) es
-version-aware: si un usuario ya aceptó una version anterior, se le
-vuelve a pedir aceptar la version vigente."""
+fondo (NO cuando solo cambia el nombre del programa -- eso es
+cosmético, no un cambio del marco legal). El gate de consentimiento
+(backend y ambos frontends) es version-aware: si un usuario ya aceptó
+una version anterior, se le vuelve a pedir aceptar la version vigente.
+
+El nombre del programa académico es un PARÁMETRO (texto_politica()),
+no una constante -- cada uno de los ~15 programas ve su propio nombre
+en el mismo texto legal institucional, sin que eso cuente como una
+nueva versión."""
 
 VERSION_POLITICA = "1.1"
 
@@ -24,12 +30,12 @@ def acepto_politica_vigente(usuario) -> bool:
     anterior debe volver a aceptar."""
     return bool(usuario.acepto_tratamiento_datos) and usuario.version_politica_aceptada == VERSION_POLITICA
 
-TEXTO_POLITICA = """\
+_TEXTO_POLITICA_PLANTILLA = """\
 **Sistema de Gestión y Autoevaluación Docente — Prueba piloto**
-**Programa de Ingeniería de Sistemas, Universidad del Pacífico**
+**Programa de {programa}, Universidad del Pacífico**
 
 **1. Naturaleza piloto de la aplicación.** Este sistema se encuentra en fase de \
-**prueba piloto** dentro del Programa de Ingeniería de Sistemas de la Universidad \
+**prueba piloto** dentro del Programa de {programa} de la Universidad \
 del Pacífico. Su uso está restringido al personal autorizado del programa \
 (docentes, Director, Secretario Académico y Secretaria del Programa) y su \
 finalidad es exclusivamente académico-administrativa e interna. Al tratarse de \
@@ -39,7 +45,7 @@ su eventual puesta en producción.
 
 **2. Responsable del tratamiento.** La **Universidad del Pacífico**, institución \
 de educación superior de carácter público con domicilio en Buenaventura, Valle \
-del Cauca, Colombia, a través de su Programa de Ingeniería de Sistemas, actúa \
+del Cauca, Colombia, a través de su Programa de {programa}, actúa \
 como responsable del tratamiento de los datos personales recolectados por este \
 sistema.
 
@@ -48,7 +54,7 @@ técnica de esta aplicación estuvieron a cargo del ingeniero **Wilman Andrés \
 Quiñonez Valencia**, Ingeniero de Sistemas, quien actúa como encargado del \
 tratamiento para efectos del desarrollo, soporte técnico y mantenimiento de la \
 plataforma durante la fase piloto, bajo la dirección y responsabilidad del \
-Programa de Ingeniería de Sistemas de la Universidad del Pacífico.
+Programa de {programa} de la Universidad del Pacífico.
 
 **4. Infraestructura y alojamiento.** Durante la fase piloto, esta aplicación se \
 aloja en un servidor privado (VPS — *Virtual Private Server*) y se publica bajo \
@@ -119,7 +125,7 @@ datos personales.
 
 **9. Canal para ejercer estos derechos.** Estos derechos pueden ejercerse en \
 cualquier momento ante la Dirección o la Secretaría Académica del Programa de \
-Ingeniería de Sistemas de la Universidad del Pacífico.
+{programa} de la Universidad del Pacífico.
 
 **10. Medidas de seguridad.** El sistema aplica control de acceso basado en \
 roles (RBAC) validado tanto en la interfaz como en cada servicio del backend; \
@@ -148,8 +154,17 @@ esta política.
 **13. Declaración de aceptación.** Al marcar la casilla de aceptación y \
 continuar, usted declara que ha leído y comprendido este aviso, y que otorga de \
 manera **libre, previa, expresa e informada** su autorización a la Universidad \
-del Pacífico — Programa de Ingeniería de Sistemas para el tratamiento de sus \
+del Pacífico — Programa de {programa} para el tratamiento de sus \
 datos personales conforme a lo aquí descrito, en los términos de los artículos \
 9 y 10 de la Ley 1581 de 2012. Esta aceptación es obligatoria para acceder al \
 sistema, independientemente del rol asignado (Docente, Director, Secretario \
 Académico o Secretaria del Programa)."""
+
+
+def texto_politica(programa_nombre: str) -> str:
+    """Arma el texto del aviso de privacidad con el nombre del programa
+    académico del usuario que lo está aceptando. Ver docstring del
+    módulo -- el nombre del programa es lo único que varía; el marco
+    legal y `VERSION_POLITICA` son los mismos para todos los
+    programas."""
+    return _TEXTO_POLITICA_PLANTILLA.format(programa=programa_nombre)

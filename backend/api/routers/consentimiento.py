@@ -4,7 +4,7 @@ sistema (Ley 1581 de 2012)."""
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
-from agente_notas.aviso_privacidad import TEXTO_POLITICA, TITULO_POLITICA, VERSION_POLITICA
+from agente_notas.aviso_privacidad import TITULO_POLITICA, VERSION_POLITICA, texto_politica
 from backend.api.deps import get_current_user, get_db
 from backend.api.routers.auth import _usuario_out
 from backend.schemas.auth import UsuarioOut
@@ -16,8 +16,12 @@ router = APIRouter(prefix="/api/consentimiento", tags=["consentimiento"])
 
 
 @router.get("/politica", response_model=PoliticaOut)
-def politica():
-    return PoliticaOut(version=VERSION_POLITICA, titulo=TITULO_POLITICA, texto=TEXTO_POLITICA)
+def politica(usuario: Usuario = Depends(get_current_user)):
+    # El nombre del programa se resuelve del usuario autenticado -- por
+    # eso este endpoint, a diferencia de /aceptar, ahora exige sesion
+    # (antes no la exigia porque el texto era el mismo para todos).
+    programa_nombre = usuario.programa.nombre if usuario.programa else "tu programa"
+    return PoliticaOut(version=VERSION_POLITICA, titulo=TITULO_POLITICA, texto=texto_politica(programa_nombre))
 
 
 @router.post("/aceptar", response_model=UsuarioOut)

@@ -16,6 +16,7 @@ import streamlit as st
 from db.database import get_session
 from vistas import (
     calendario,
+    cambiar_password,
     consentimiento,
     direccion,
     docente,
@@ -69,7 +70,7 @@ def mostrar_barra_usuario():
         if st.button("Cerrar sesión", use_container_width=True):
             for clave in [
                 "usuario_id", "usuario_nombre", "usuario_rol", "usuario_username",
-                "usuario_programa_id", "usuario_programa_nombre",
+                "usuario_programa_id", "usuario_programa_nombre", "usuario_debe_cambiar_password",
             ]:
                 st.session_state.pop(clave, None)
             st.rerun()
@@ -84,6 +85,17 @@ else:
 
     session = get_session()
     try:
+        # Orden: primero la contrasena temporal (credencial sin rotar),
+        # despues el aviso de privacidad -- igual que en el gate del
+        # backend (ver backend/main.py, _gate).
+        password_actualizada = cambiar_password.render_forzado(session, st.session_state["usuario_id"])
+    finally:
+        session.close()
+    if not password_actualizada:
+        st.stop()
+
+    session = get_session()
+    try:
         acepto_politica = consentimiento.render(session, st.session_state["usuario_id"])
     finally:
         session.close()
@@ -91,6 +103,11 @@ else:
         st.stop()
 
     rol = st.session_state["usuario_rol"]
+    session = get_session()
+    try:
+        cambiar_password.render_opcional(session, st.session_state["usuario_id"])
+    finally:
+        session.close()
     notificaciones.render(st.session_state["usuario_id"])
     st.divider()
 

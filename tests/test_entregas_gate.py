@@ -9,6 +9,7 @@ import uuid
 
 import pytest
 
+from db.models import Programa
 from db.repository import (
     agregar_documento_entrega,
     aprobar_entrega,
@@ -26,6 +27,13 @@ def _rol_id(session, nombre: str) -> int:
     return next(r.id for r in listar_roles(session) if r.nombre == nombre)
 
 
+def _crear_programa(session) -> Programa:
+    programa = Programa(nombre=f"PYTEST Programa {uuid.uuid4().hex[:6]}", codigo=f"pytest-{uuid.uuid4().hex[:8]}")
+    session.add(programa)
+    session.flush()
+    return programa
+
+
 @pytest.fixture()
 def entrega_con_documento_sin_firma(db_session):
     """Crea un docente + un director de prueba, una entrega, y un
@@ -36,14 +44,15 @@ def entrega_con_documento_sin_firma(db_session):
     corte = corte_por_numero(db_session, 1)
     assert corte is not None
 
+    programa = _crear_programa(db_session)
     sufijo = uuid.uuid4().hex[:8]
     docente = crear_usuario(
         db_session, "PYTEST Gate Docente", None, None, f"__pytest_gate_doc_{sufijo}__",
-        "hash", _rol_id(db_session, "docente"),
+        "hash", _rol_id(db_session, "docente"), programa_id=programa.id,
     )
     director = crear_usuario(
         db_session, "PYTEST Gate Director", None, None, f"__pytest_gate_dir_{sufijo}__",
-        "hash", _rol_id(db_session, "director"),
+        "hash", _rol_id(db_session, "director"), programa_id=programa.id,
     )
     entrega = obtener_o_crear_entrega(db_session, docente.id, periodo.id, corte.id)
     documento = agregar_documento_entrega(
@@ -94,14 +103,15 @@ class TestAprobarEntregaConGate:
         aprobacion, aunque nunca se haya marcado como visto/confirmado."""
         periodo = periodo_activo(db_session)
         corte = corte_por_numero(db_session, 1)
+        programa = _crear_programa(db_session)
         sufijo = uuid.uuid4().hex[:8]
         docente = crear_usuario(
             db_session, "PYTEST Firmado Docente", None, None, f"__pytest_firmado_{sufijo}__",
-            "hash", _rol_id(db_session, "docente"),
+            "hash", _rol_id(db_session, "docente"), programa_id=programa.id,
         )
         director = crear_usuario(
             db_session, "PYTEST Firmado Director", None, None, f"__pytest_firmado_dir_{sufijo}__",
-            "hash", _rol_id(db_session, "director"),
+            "hash", _rol_id(db_session, "director"), programa_id=programa.id,
         )
         entrega = obtener_o_crear_entrega(db_session, docente.id, periodo.id, corte.id)
         agregar_documento_entrega(

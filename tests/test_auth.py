@@ -3,9 +3,11 @@
 base de datos."""
 import pytest
 from jose import JWTError
+from pydantic import ValidationError
 
 from backend.core.security import crear_access_token, decodificar_access_token
-from db.auth import hash_password, verificar_password
+from backend.schemas.usuario import UsuarioCreate
+from db.auth import hash_password, validar_longitud_password, verificar_password
 
 
 class TestHashPassword:
@@ -40,3 +42,36 @@ class TestJWT:
         manipulado = token[:-4] + "abcd"
         with pytest.raises(JWTError):
             decodificar_access_token(manipulado)
+
+
+class TestValidarLongitudPassword:
+    def test_password_menor_a_8_caracteres_rechazada(self):
+        with pytest.raises(ValueError):
+            validar_longitud_password("abc123")
+
+    def test_password_de_8_o_mas_caracteres_aceptada(self):
+        validar_longitud_password("abcd1234")  # no debe lanzar
+
+
+class TestUsuarioCreateSchema:
+    _DATOS_BASE = dict(
+        nombre_completo="PYTEST Usuario", cedula="123", email="pytest@example.com",
+        username="pytest_user", password="contraseña-larga", rol="docente",
+    )
+
+    def test_cedula_y_correo_son_obligatorios(self):
+        UsuarioCreate(**self._DATOS_BASE)  # no debe lanzar: todos los campos requeridos presentes
+
+        with pytest.raises(ValidationError):
+            UsuarioCreate(**{**self._DATOS_BASE, "cedula": None})
+        with pytest.raises(ValidationError):
+            UsuarioCreate(**{**self._DATOS_BASE, "email": None})
+
+    def test_telefono_es_opcional(self):
+        # No debe lanzar sin telefono ni con telefono presente.
+        UsuarioCreate(**self._DATOS_BASE)
+        UsuarioCreate(**{**self._DATOS_BASE, "telefono": "3001234567"})
+
+    def test_password_corta_rechazada_por_el_schema(self):
+        with pytest.raises(ValidationError):
+            UsuarioCreate(**{**self._DATOS_BASE, "password": "corta"})

@@ -20,5 +20,9 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173",
     ]
 
+    # Base para construir el enlace de recuperacion de contrasena que se
+    # envia por correo (ej. f"{FRONTEND_URL}/restablecer-password?token=...").
+    FRONTEND_URL: str = "http://localhost:5173"
+
 
 settings = Settings()

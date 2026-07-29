@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import Header from "../components/Header";
 import { useAuth } from "../context/AuthContext";
 
@@ -52,6 +52,9 @@ export default function LoginPage() {
           <button type="submit" className="btn btn--primario" disabled={cargando}>
             {cargando ? "Entrando…" : "Entrar"}
           </button>
+          <p className="texto-ayuda">
+            <Link to="/recuperar-password">¿Olvidaste tu contraseña?</Link>
+          </p>
         </form>
       </main>
     </>

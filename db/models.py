@@ -141,6 +141,13 @@ class Usuario(Base):
     acepto_tratamiento_datos: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     fecha_aceptacion_tratamiento: Mapped[datetime | None] = mapped_column(DateTime)
     version_politica_aceptada: Mapped[str | None] = mapped_column(String(20))
+    # True para toda cuenta creada con una contrasena temporal (ver
+    # db.repository.crear_usuario) -- se apaga cuando el usuario la
+    # cambia (ya sea por backend.api.routers.auth.cambiar_password o
+    # por restablecer_password). Las cuentas que ya existian antes de
+    # este campo (admin, wilman) quedan en False: no se fuerza el
+    # cambio retroactivamente.
+    debe_cambiar_password: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     rol: Mapped["Rol"] = relationship(back_populates="usuarios")
     programa: Mapped["Programa | None"] = relationship()
@@ -392,6 +399,22 @@ class AceptacionPoliticaTratamiento(Base):
     version_politica: Mapped[str] = mapped_column(String(20), nullable=False)
     aceptado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     direccion_ip: Mapped[str | None] = mapped_column(String(45))
+
+
+class TokenRecuperacionPassword(Base):
+    """Token de un solo uso para el flujo de 'olvide mi contrasena'. Solo
+    se persiste el hash (sha256) del token -- el token en texto plano
+    solo existe en el correo enviado y en el POST de canje, nunca en la
+    base de datos (ver db.repository.crear_token_recuperacion)."""
+
+    __tablename__ = "tokens_recuperacion_password"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    expira_en: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    usado_en: Mapped[datetime | None] = mapped_column(DateTime)
 
     usuario: Mapped["Usuario"] = relationship()
 

@@ -100,14 +100,15 @@ def render(usuario_id: int, rol: str):
         )
     )
 
+    programa_id = st.session_state.get("usuario_programa_id")
     session = get_session()
     try:
         busqueda = st.text_input("Buscar por asignatura o docente", key="repo_busqueda", placeholder="Ej: Sistemas Operativos")
-        entradas = listar_repositorio_asignaturas(session, busqueda=busqueda.strip() or None)
+        entradas = listar_repositorio_asignaturas(session, programa_id, busqueda=busqueda.strip() or None)
 
         docentes = []
         if es_admin:
-            docentes = [u for u in listar_usuarios(session) if u.rol.nombre == "docente"]
+            docentes = [u for u in listar_usuarios(session, programa_id) if u.rol.nombre == "docente"]
 
         if not entradas:
             st.info("No hay asignaturas registradas en el repositorio todavía.")
@@ -166,7 +167,7 @@ def render(usuario_id: int, rol: str):
                         st.error("El nombre de la asignatura es obligatorio.")
                     else:
                         try:
-                            crear_repositorio_asignatura(session, nombre, opciones_doc[elegido], usuario_id)
+                            crear_repositorio_asignatura(session, nombre, opciones_doc[elegido], usuario_id, programa_id)
                             st.success(f"Asignatura '{nombre.strip()}' agregada al repositorio.")
                             st.rerun()
                         except Exception as exc:

@@ -60,6 +60,22 @@ def requiere_consentimiento(usuario: Usuario = Depends(get_current_user)) -> Usu
     return usuario
 
 
+def requiere_password_actualizada(usuario: Usuario = Depends(get_current_user)) -> Usuario:
+    """Bloquea cualquier endpoint de negocio si la cuenta todavia tiene
+    una contrasena temporal sin cambiar. Se aplica a nivel de router (ver
+    backend/main.py) a todos los routers salvo auth y consentimiento --
+    POST /api/auth/cambiar-password debe seguir funcionando mientras este
+    gate esta activo. Se revisa ANTES que requiere_consentimiento: una
+    credencial temporal sin rotar es mas urgente que una politica sin
+    aceptar."""
+    if usuario.debe_cambiar_password:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Debes cambiar tu contraseña temporal antes de continuar.",
+        )
+    return usuario
+
+
 def requiere_roles(*roles_permitidos: str):
     def dependencia(usuario: Usuario = Depends(get_current_user)) -> Usuario:
         if usuario.rol.nombre not in roles_permitidos:

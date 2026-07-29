@@ -16,6 +16,35 @@ DIRECTORIO_ENTREGAS = RAIZ / "entregas_docentes"
 DIRECTORIO_REPOSITORIO = RAIZ / "repositorio_asignaturas"
 DIRECTORIOS_PERMITIDOS = (DIRECTORIO_ENTREGAS, DIRECTORIO_REPOSITORIO)
 
+# Whitelist real de extensiones aceptadas para CUALQUIER archivo que un
+# usuario suba (entregas y repositorio): el <input accept="..."> del
+# frontend es solo una sugerencia de UI, no una validacion -- sin este
+# chequeo en el servidor, alguien podia subir un .html/.svg con
+# JavaScript embebido y, al descargarse con Content-Disposition
+# "inline" (ver descargar_documento/_descargar en los routers), el
+# navegador de un revisor (Director/Secretario/Secretaria) lo ejecutaria
+# en el origen de la API (XSS almacenado).
+EXTENSIONES_PERMITIDAS = {"pdf", "xlsx", "jpg", "jpeg", "png"}
+TAMANO_MAXIMO_BYTES = 15 * 1024 * 1024  # 15 MB: de sobra para estos documentos
+
+
+class ArchivoInvalido(ValueError):
+    """Extension no permitida o archivo demasiado grande."""
+
+
+def validar_archivo_subido(nombre_original: str, contenido: bytes) -> None:
+    extension = nombre_original.lower().rsplit(".", 1)[-1] if "." in nombre_original else ""
+    if extension not in EXTENSIONES_PERMITIDAS:
+        raise ArchivoInvalido(
+            f"Tipo de archivo '.{extension}' no permitido. Solo se aceptan: "
+            f"{', '.join(sorted(EXTENSIONES_PERMITIDAS))}."
+        )
+    if len(contenido) > TAMANO_MAXIMO_BYTES:
+        raise ArchivoInvalido(
+            f"El archivo pesa {len(contenido) / (1024 * 1024):.1f} MB; el máximo permitido es "
+            f"{TAMANO_MAXIMO_BYTES // (1024 * 1024)} MB."
+        )
+
 
 def _sanitizar(nombre: str) -> str:
     """Nombre de archivo seguro para el sistema de archivos: sin acentos,
@@ -38,6 +67,7 @@ def guardar_archivo_entrega(
     periodo/docente/corte y devuelve (ruta_relativa_al_proyecto,
     tamaño_en_bytes). La ruta relativa es lo que se guarda en
     DocumentoEntrega.ruta_archivo."""
+    validar_archivo_subido(nombre_original, contenido)
     carpeta = DIRECTORIO_ENTREGAS / periodo_nombre / f"docente_{docente_id}" / f"corte_{corte_numero}"
     carpeta.mkdir(parents=True, exist_ok=True)
 
@@ -52,6 +82,7 @@ def guardar_archivo_repositorio(asignatura_id: int, tipo: str, nombre_original: 
     """Guarda el sílabo o el programa de asignatura de una materia del
     repositorio de consulta. 'tipo' es 'silabo' o 'programa'. Devuelve
     (ruta_relativa_al_proyecto, tamaño_en_bytes)."""
+    validar_archivo_subido(nombre_original, contenido)
     carpeta = DIRECTORIO_REPOSITORIO / f"asignatura_{asignatura_id}"
     carpeta.mkdir(parents=True, exist_ok=True)
 
@@ -76,6 +107,41 @@ def ruta_absoluta_segura(ruta_relativa: str) -> Path | None:
             continue
         return candidato if candidato.is_file() else None
     return None
+
+
+# Solo estas extensiones se sirven "inline" (mostradas en el navegador,
+# como hacen los botones "Ver"). Se resuelve por whitelist explicita en
+# vez de mimetypes.guess_type(nombre_archivo) sobre el nombre tal como lo
+# escribio el usuario: adivinar el tipo por extension y mostrarlo inline
+# es exactamente el vector de XSS que valida_archivo_subido ya bloquea en
+# la subida, pero esta segunda barrera protege incluso archivos
+# guardados antes de que existiera esa validacion.
+_TIPOS_INLINE = {
+    "pdf": "application/pdf",
+    "jpg": "image/jpeg",
+    "jpeg": "image/jpeg",
+    "png": "image/png",
+}
+
+
+def tipo_y_disposicion(nombre_archivo: str) -> tuple[str, str]:
+    """Devuelve (media_type, disposicion) para servir un archivo
+    descargado: solo pdf/jpg/jpeg/png se muestran 'inline' en el
+    navegador; cualquier otra extension (p.ej. xlsx, o cualquier cosa
+    que no pase por la whitelist de subida) se fuerza a descarga binaria
+    ('attachment' + application/octet-stream), que el navegador nunca
+    ejecuta como HTML/script."""
+    extension = nombre_archivo.lower().rsplit(".", 1)[-1] if "." in nombre_archivo else ""
+    if extension in _TIPOS_INLINE:
+        return _TIPOS_INLINE[extension], "inline"
+    return "application/octet-stream", "attachment"
+
+
+def nombre_seguro_para_header(nombre_archivo: str) -> str:
+    """Elimina comillas dobles del nombre antes de interpolarlo en la
+    cabecera Content-Disposition -- nombre_archivo es el nombre ORIGINAL
+    tal como lo escribio quien subio el archivo, nunca el sanitizado."""
+    return nombre_archivo.replace('"', "")
 
 
 def eliminar_archivo(ruta_relativa: str) -> None:

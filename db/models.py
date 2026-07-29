@@ -36,9 +36,11 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Numeric,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -76,6 +78,13 @@ class PeriodoAcademico(Base):
     __tablename__ = "periodos_academicos"
     __table_args__ = (
         UniqueConstraint("anio", "semestre", name="uq_periodo_anio_semestre"),
+        # Indice unico parcial: la BD (no solo db.repository.activar_periodo)
+        # garantiza que nunca haya dos periodos activos a la vez, incluso
+        # si dos requests concurrentes intentan activar periodos distintos
+        # al mismo tiempo (columna con un solo valor posible -- True -- en
+        # la condicion, asi que un segundo INSERT/UPDATE con activo=True
+        # choca con esta constraint en vez de dejar dos filas activas).
+        Index("uq_un_solo_periodo_activo", "activo", unique=True, postgresql_where=text("activo")),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -147,7 +156,9 @@ class InformeCorte(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    asignacion_id: Mapped[int] = mapped_column(ForeignKey("asignaciones_academicas.id"), nullable=False)
+    asignacion_id: Mapped[int] = mapped_column(
+        ForeignKey("asignaciones_academicas.id", ondelete="CASCADE"), nullable=False
+    )
     corte_id: Mapped[int] = mapped_column(ForeignKey("cortes.id"), nullable=False)
 
     matriculados: Mapped[int] = mapped_column(nullable=False)
@@ -177,7 +188,7 @@ class NotaEstudiante(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     informe_corte_id: Mapped[int] = mapped_column(
-        ForeignKey("informes_corte.id", ondelete="CASCADE"), nullable=False
+        ForeignKey("informes_corte.id", ondelete="CASCADE"), nullable=False, index=True
     )
     documento: Mapped[str | None] = mapped_column(String(30))
     nombre_estudiante: Mapped[str] = mapped_column(String(150), nullable=False)
@@ -275,7 +286,9 @@ class DocumentoEntrega(Base):
     __tablename__ = "documentos_entrega"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    entrega_id: Mapped[int] = mapped_column(ForeignKey("entregas.id", ondelete="CASCADE"), nullable=False)
+    entrega_id: Mapped[int] = mapped_column(
+        ForeignKey("entregas.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     tipo_documento: Mapped[str] = mapped_column(String(50), nullable=False)  # ver TIPOS_DOCUMENTO_ENTREGA
     descripcion_otro: Mapped[str | None] = mapped_column(String(150))  # solo si tipo_documento == 'otro'
     materia: Mapped[str | None] = mapped_column(String(150))
@@ -292,6 +305,18 @@ class DocumentoEntrega(Base):
     firma_confianza: Mapped[str | None] = mapped_column(String(10))
     firma_detalle: Mapped[str | None] = mapped_column(String(300))
 
+    # Cuando firma_detectada no es True (Revision manual o No firmado), un
+    # revisor (Director/Secretario/Secretaria del Programa) debe abrir o
+    # descargar el archivo (visto_en) antes de poder confirmar la revision
+    # manual (revisado_manualmente); aprobar_entrega() en el repository
+    # bloquea la aprobacion de la entrega mientras falte esta confirmacion.
+    visto_en: Mapped[datetime | None] = mapped_column(DateTime)
+    revisado_manualmente: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    revisado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    revisado_en: Mapped[datetime | None] = mapped_column(DateTime)
+
+    revisado_por: Mapped["Usuario | None"] = relationship(foreign_keys=[revisado_por_id])
+
     entrega: Mapped["Entrega"] = relationship(back_populates="documentos")
 
 
@@ -306,7 +331,9 @@ class Notificacion(Base):
     __tablename__ = "notificaciones"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False)
+    usuario_id: Mapped[int] = mapped_column(
+        ForeignKey("usuarios.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     mensaje: Mapped[str] = mapped_column(String(500), nullable=False)
     entrega_id: Mapped[int | None] = mapped_column(ForeignKey("entregas.id", ondelete="SET NULL"))
     leida: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

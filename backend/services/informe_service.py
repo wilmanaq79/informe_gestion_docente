@@ -123,7 +123,7 @@ def procesar_materias(db_session, docente_id: int, excel_stream, corte: int, ite
                     conteo_estado[fila["estado"]] = conteo_estado.get(fila["estado"], 0) + 1
 
                 asignacion = obtener_o_crear_asignacion(
-                    db_session, docente_id, periodo.id, materia, "Ingeniería de Sistemas", grupo
+                    db_session, docente_id, periodo.id, materia, "Ingeniería de Sistemas", grupo, commit=False
                 )
                 guardar_informe_corte(
                     db_session,
@@ -134,14 +134,22 @@ def procesar_materias(db_session, docente_id: int, excel_stream, corte: int, ite
                     stats.mediana,
                     stats.desviacion,
                     filas_notas,
+                    commit=False,
                 )
 
                 resultados_crudos.append(
                     {"materia": materia, "grupo": grupo, "resumen": resumen, "stats": stats, "conteo_estado": conteo_estado}
                 )
         except Exception:
+            # Ninguna materia de este lote se confirma si una falla a
+            # mitad de camino -- todas o ninguna (ver commit=False arriba).
+            db_session.rollback()
             wb.close()
             raise
+
+        # Recien aqui, con TODAS las materias del lote escritas sin error,
+        # se confirma la transaccion completa de una sola vez.
+        db_session.commit()
 
         guardar(wb, str(out_path))
         excel_bytes = out_path.read_bytes()

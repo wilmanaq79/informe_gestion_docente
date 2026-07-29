@@ -224,6 +224,10 @@ export interface DocumentoEntrega {
   firma_detectada: boolean | null;
   firma_confianza: string | null;
   firma_detalle: string | null;
+  visto_en: string | null;
+  revisado_manualmente: boolean;
+  revisado_por_nombre: string | null;
+  revisado_en: string | null;
 }
 
 export interface Entrega {

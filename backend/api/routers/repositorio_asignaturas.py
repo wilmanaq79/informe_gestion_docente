@@ -5,13 +5,18 @@ cargan/actualizan el sílabo, crean/renombran asignaturas, reasignan el
 docente y eliminan. Cada docente actualiza (sube o quita) el programa de
 asignatura únicamente de la materia que él mismo dicta."""
 import io
-import mimetypes
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from agente_notas.almacenamiento import guardar_archivo_repositorio, ruta_absoluta_segura
+from agente_notas.almacenamiento import (
+    ArchivoInvalido,
+    guardar_archivo_repositorio,
+    nombre_seguro_para_header,
+    ruta_absoluta_segura,
+    tipo_y_disposicion,
+)
 from backend.api.deps import get_db, requiere_roles
 from backend.schemas.repositorio_asignatura import (
     RepositorioAsignaturaCreate,
@@ -128,7 +133,10 @@ def _subir(db: Session, id_: int, archivo: UploadFile, usuario: Usuario, tipo: s
     contenido = archivo.file.read()
     if not contenido:
         raise HTTPException(status_code=400, detail="El archivo está vacío.")
-    ruta_relativa, tamano = guardar_archivo_repositorio(id_, tipo, archivo.filename or "archivo", contenido)
+    try:
+        ruta_relativa, tamano = guardar_archivo_repositorio(id_, tipo, archivo.filename or "archivo", contenido)
+    except ArchivoInvalido as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     fn = adjuntar_silabo if tipo == "silabo" else adjuntar_programa
     entrada = fn(db, id_, archivo.filename or "archivo", ruta_relativa, tamano, usuario.id)
     if entrada is None:
@@ -188,12 +196,13 @@ def _descargar(ruta_archivo: str | None, nombre_archivo: str | None):
     ruta = ruta_absoluta_segura(ruta_archivo)
     if ruta is None:
         raise HTTPException(status_code=404, detail="El archivo ya no existe en el servidor.")
-    media_type, _ = mimetypes.guess_type(nombre_archivo or ruta.name)
+    media_type, disposicion = tipo_y_disposicion(nombre_archivo or ruta.name)
+    nombre_header = nombre_seguro_para_header(nombre_archivo or ruta.name)
     buffer = io.BytesIO(ruta.read_bytes())
     return StreamingResponse(
         buffer,
-        media_type=media_type or "application/octet-stream",
-        headers={"Content-Disposition": f'inline; filename="{nombre_archivo or ruta.name}"'},
+        media_type=media_type,
+        headers={"Content-Disposition": f'{disposicion}; filename="{nombre_header}"'},
     )
 
 

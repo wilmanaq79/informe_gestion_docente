@@ -1,6 +1,7 @@
 """Calendario académico oficial (Inicio de clases, parciales, límites de
-reporte de notas por corte, etc.) de un periodo. Los docentes solo lo
-consultan; el Director y el Secretario Académico lo crean/editan/borran."""
+reporte de notas por corte, etc.) de un periodo. Docentes y Secretaria
+del Programa solo lo consultan; el Director y el Secretario Académico
+lo crean/editan/borran."""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -27,7 +28,7 @@ def _out(e) -> EventoCalendarioOut:
 def listar(
     periodo_id: int = Query(..., description="Id del PeriodoAcademico (ver /api/periodos)."),
     db: Session = Depends(get_db),
-    _usuario=Depends(requiere_roles("docente", "director", "secretario")),
+    _usuario=Depends(requiere_roles("docente", "director", "secretario", "secretaria_programa")),
 ):
     return [_out(e) for e in listar_eventos_calendario(db, periodo_id)]
 

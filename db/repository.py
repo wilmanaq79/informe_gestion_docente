@@ -106,8 +106,20 @@ def activar_periodo(session, periodo_id: int) -> PeriodoAcademico:
 
 
 def obtener_o_crear_asignacion(
-    session, docente_id: int, periodo_id: int, asignatura: str, programa: str | None, grupo: str | None
+    session,
+    docente_id: int,
+    periodo_id: int,
+    asignatura: str,
+    programa: str | None,
+    grupo: str | None,
+    commit: bool = True,
 ) -> AsignacionAcademica:
+    """commit=False la deja pendiente en la transaccion actual (flush,
+    sin persistir) -- lo usa el procesamiento por lotes de varias
+    materias (backend/services/informe_service.py, vistas/docente.py)
+    para que todo el lote se confirme o se revierta como una sola
+    unidad; el caller es responsable de hacer session.commit() al
+    final o session.rollback() si alguna materia del lote falla."""
     stmt = select(AsignacionAcademica).where(
         AsignacionAcademica.docente_id == docente_id,
         AsignacionAcademica.periodo_id == periodo_id,
@@ -124,7 +136,7 @@ def obtener_o_crear_asignacion(
             grupo=grupo,
         )
         session.add(asignacion)
-        session.commit()
+        session.commit() if commit else session.flush()
     return asignacion
 
 
@@ -137,9 +149,12 @@ def guardar_informe_corte(
     mediana: float,
     desviacion: float,
     filas_notas: list[dict],
+    commit: bool = True,
 ) -> InformeCorte:
     """Crea o actualiza (upsert) el informe de un corte para una asignacion,
-    y reemplaza el detalle de notas_estudiantes asociado."""
+    y reemplaza el detalle de notas_estudiantes asociado. commit=False:
+    ver docstring de obtener_o_crear_asignacion -- misma logica de lote
+    atomico."""
     corte = session.scalar(select(Corte).where(Corte.numero == corte_numero))
     if corte is None:
         raise ValueError(f"Corte {corte_numero} no existe en el catalogo. Ejecuta db/seed.py")
@@ -168,8 +183,11 @@ def guardar_informe_corte(
     for fila in filas_notas:
         session.add(NotaEstudiante(informe_corte_id=informe.id, **fila))
 
-    session.commit()
-    session.refresh(informe)
+    if commit:
+        session.commit()
+        session.refresh(informe)
+    else:
+        session.flush()
     return informe
 
 
@@ -556,6 +574,34 @@ def documento_entrega_por_id(session, documento_id: int) -> DocumentoEntrega | N
     return session.get(DocumentoEntrega, documento_id)
 
 
+def marcar_documento_visto(session, documento_id: int) -> None:
+    """Registra la primera vez que un revisor abre o descarga el archivo.
+    Idempotente: no pisa la fecha si ya se habia marcado antes."""
+    documento = session.get(DocumentoEntrega, documento_id)
+    if documento is not None and documento.visto_en is None:
+        documento.visto_en = datetime.utcnow()
+        session.commit()
+
+
+def confirmar_revision_documento(session, documento_id: int, revisor_id: int) -> DocumentoEntrega:
+    """Un revisor confirma que ya revisó manualmente este documento (Firma
+    = Revisión manual o No firmado) y da su visto bueno. Exige haberlo
+    abierto/descargado antes (visto_en), para garantizar el criterio
+    humano en vez de una confirmación a ciegas."""
+    documento = session.get(DocumentoEntrega, documento_id)
+    if documento is None:
+        raise ValueError(f"Documento {documento_id} no existe.")
+    if documento.visto_en is None:
+        raise ValueError("Debes abrir o descargar el archivo antes de confirmar la revisión.")
+
+    documento.revisado_manualmente = True
+    documento.revisado_por_id = revisor_id
+    documento.revisado_en = datetime.utcnow()
+    session.commit()
+    session.refresh(documento)
+    return documento
+
+
 def eliminar_documento_entrega(session, documento_id: int) -> bool:
     """Borra el documento (fila + archivo en disco) y vuelve la entrega a
     'pendiente' -- ya no representa lo que se revisó/aprobó antes. Si esa
@@ -637,6 +683,16 @@ def aprobar_entrega(session, entrega_id: int, revisor_id: int, comentario: str |
         raise ValueError(f"Entrega {entrega_id} no existe.")
     if not entrega.documentos:
         raise ValueError("No se puede aprobar una entrega sin documentos cargados.")
+
+    pendientes_revision = [
+        d for d in entrega.documentos if d.firma_detectada is not True and not d.revisado_manualmente
+    ]
+    if pendientes_revision:
+        nombres = ", ".join(d.nombre_archivo for d in pendientes_revision)
+        raise ValueError(
+            f"Debes abrir y confirmar la revisión manual de: {nombres} (Firma = Revisión manual o No "
+            "firmado) antes de aprobar la entrega."
+        )
 
     entrega.estado = "aprobado"
     entrega.documentos_firmados_confirmado = True
@@ -833,14 +889,18 @@ def adjuntar_silabo(
     entrada = session.get(RepositorioAsignatura, id_)
     if entrada is None:
         return None
-    if entrada.silabo_ruta_archivo:
-        eliminar_archivo(entrada.silabo_ruta_archivo)
+    ruta_anterior = entrada.silabo_ruta_archivo
     entrada.silabo_nombre_archivo = nombre_archivo
     entrada.silabo_ruta_archivo = ruta_archivo
     entrada.silabo_tamano_bytes = tamano_bytes
     entrada.actualizado_por_id = actualizado_por_id
     session.commit()
     session.refresh(entrada)
+    # El archivo fisico anterior se borra DESPUES de confirmar el commit:
+    # si el commit fallara, la fila seguiria apuntando al archivo viejo
+    # en vez de a uno ya borrado e irrecuperable.
+    if ruta_anterior:
+        eliminar_archivo(ruta_anterior)
     return entrada
 
 
@@ -850,14 +910,15 @@ def adjuntar_programa(
     entrada = session.get(RepositorioAsignatura, id_)
     if entrada is None:
         return None
-    if entrada.programa_ruta_archivo:
-        eliminar_archivo(entrada.programa_ruta_archivo)
+    ruta_anterior = entrada.programa_ruta_archivo
     entrada.programa_nombre_archivo = nombre_archivo
     entrada.programa_ruta_archivo = ruta_archivo
     entrada.programa_tamano_bytes = tamano_bytes
     entrada.actualizado_por_id = actualizado_por_id
     session.commit()
     session.refresh(entrada)
+    if ruta_anterior:
+        eliminar_archivo(ruta_anterior)
     return entrada
 
 
@@ -865,12 +926,13 @@ def quitar_silabo(session, id_: int, actualizado_por_id: int) -> bool:
     entrada = session.get(RepositorioAsignatura, id_)
     if entrada is None or not entrada.silabo_ruta_archivo:
         return False
-    eliminar_archivo(entrada.silabo_ruta_archivo)
+    ruta_anterior = entrada.silabo_ruta_archivo
     entrada.silabo_nombre_archivo = None
     entrada.silabo_ruta_archivo = None
     entrada.silabo_tamano_bytes = None
     entrada.actualizado_por_id = actualizado_por_id
     session.commit()
+    eliminar_archivo(ruta_anterior)
     return True
 
 
@@ -878,12 +940,13 @@ def quitar_programa(session, id_: int, actualizado_por_id: int) -> bool:
     entrada = session.get(RepositorioAsignatura, id_)
     if entrada is None or not entrada.programa_ruta_archivo:
         return False
-    eliminar_archivo(entrada.programa_ruta_archivo)
+    ruta_anterior = entrada.programa_ruta_archivo
     entrada.programa_nombre_archivo = None
     entrada.programa_ruta_archivo = None
     entrada.programa_tamano_bytes = None
     entrada.actualizado_por_id = actualizado_por_id
     session.commit()
+    eliminar_archivo(ruta_anterior)
     return True
 
 
@@ -891,10 +954,12 @@ def eliminar_repositorio_asignatura(session, id_: int) -> bool:
     entrada = session.get(RepositorioAsignatura, id_)
     if entrada is None:
         return False
-    if entrada.silabo_ruta_archivo:
-        eliminar_archivo(entrada.silabo_ruta_archivo)
-    if entrada.programa_ruta_archivo:
-        eliminar_archivo(entrada.programa_ruta_archivo)
+    ruta_silabo = entrada.silabo_ruta_archivo
+    ruta_programa = entrada.programa_ruta_archivo
     session.delete(entrada)
     session.commit()
+    if ruta_silabo:
+        eliminar_archivo(ruta_silabo)
+    if ruta_programa:
+        eliminar_archivo(ruta_programa)
     return True

@@ -7,23 +7,44 @@ entrega -- NO reemplaza su criterio, sobre todo para firmas manuscritas
 escaneadas, que no se pueden verificar de forma confiable por software.
 
 Niveles de deteccion (PDF y Excel se analizan con la MISMA logica de
-fondo, solo cambia de donde se extrae el texto/las imagenes), de mas a
+fondo, solo cambia de donde se extraen las "lineas" de texto), de mas a
 menos confiable:
   1. Firma digital (certificado) embebida en el archivo -- alta confianza.
      PDF: campo de formulario tipo /Sig. Excel (.xlsx): carpeta
      "_xmlsignatures" dentro del paquete OOXML.
-  2. El texto del documento menciona "firma"/"firmado" junto al nombre
-     del docente -- confianza media (una firma escrita a maquina, o una
-     leyenda junto a una firma escaneada). En Excel, el texto es el
-     contenido de TODAS las celdas de TODAS las hojas.
+  2. El documento tiene, en una misma zona (una linea de PDF o una fila
+     de Excel, junto con la linea/fila siguiente), una de estas DOS
+     anclas junto al nombre COMPLETO del docente (al menos 2 partes de
+     su nombre, no solo una) -- confianza media:
+       a) Contexto "firma": el texto menciona "firma"/"firmado"/etc.
+          (p.ej. "Firma del docente: Wilman Andres Quiñonez").
+       b) Contexto "docente": el texto trae un campo tipo
+          "Docente: ____" (sin la palabra "firma" en ningun lado) y ese
+          espacio esta completado con el nombre del docente -- ese
+          campo ES el punto de firma/responsable en este tipo de
+          documento.
+     Exigir 2 partes del nombre (no 1) y acotar la busqueda a la
+     linea/fila donde aparece la ancla evita falsos positivos: un
+     nombre de pila comun del docente (p.ej. "Andres") puede coincidir
+     por casualidad con un estudiante en una lista de asistencia; eso
+     ya NO alcanza para marcar el documento como firmado.
   3. El archivo trae imagenes incrustadas (posible firma/sello
-     escaneado, p.ej. pegada en una celda o en el PDF) pero nada de lo
-     anterior -- indeterminado, requiere revision humana.
+     escaneado) pero nada de lo anterior -- indeterminado, requiere
+     revision humana.
   4. Nada de lo anterior -- probablemente no firmado.
   5. Imagen suelta (jpg/png) -- no se puede verificar automaticamente
      una firma manuscrita en una imagen -- indeterminado, requiere
      revision humana.
+
+Limitacion conocida: la palabra "docente" tambien aparece en textos que
+no son un campo de firma (p.ej. un encabezado "Informe de Gestion
+Docente - Wilman Andres Quiñonez"). Si esa mencion cae en la misma
+linea/fila que el nombre completo, el agente puede marcarla como
+firmada aunque solo sea una identificacion. Por eso el veredicto sigue
+siendo de confianza "media", no "alta", y el humano revisor conserva
+la ultima palabra.
 """
+import re
 import unicodedata
 import zipfile
 from io import BytesIO
@@ -40,11 +61,54 @@ def _normalizar(texto: str) -> str:
     return "".join(c for c in texto if not unicodedata.combining(c)).lower()
 
 
-def _menciona_firma_y_nombre(texto_normalizado: str, nombre_docente: str) -> bool:
-    menciona_firma = any(palabra in texto_normalizado for palabra in PALABRAS_FIRMA)
-    partes_nombre = [p for p in _normalizar(nombre_docente).split() if len(p) > 3]
-    menciona_nombre = any(parte in texto_normalizado for parte in partes_nombre) if partes_nombre else False
-    return menciona_firma and menciona_nombre
+def _contiene_palabra(texto_normalizado: str, palabra: str) -> bool:
+    """Coincidencia de palabra completa (no substring): "docente" no debe
+    disparar dentro de otra palabra, y "firma" no debe disparar dentro de
+    "confirma" o "confirmado"."""
+    return re.search(rf"\b{re.escape(palabra)}\b", texto_normalizado) is not None
+
+
+def _nombre_coincide_fuerte(texto_normalizado: str, nombre_docente: str) -> bool:
+    """Exige al menos 2 partes distintas del nombre del docente (nombres y
+    apellidos de mas de 3 letras) si hay 2 o mas disponibles; con un
+    nombre de una sola palabra, exige esa unica parte. Esto evita que un
+    nombre de pila comun (p.ej. "Andres") haga match por casualidad con
+    otra persona mencionada en el mismo documento."""
+    partes = [p for p in _normalizar(nombre_docente).split() if len(p) > 3]
+    if not partes:
+        return False
+    coincidencias = sum(1 for p in partes if _contiene_palabra(texto_normalizado, p))
+    if len(partes) == 1:
+        return coincidencias == 1
+    return coincidencias >= 2
+
+
+def _buscar_firma_en_lineas(lineas: list, nombre_docente: str) -> str | None:
+    """Recorre las lineas (PDF) o filas (Excel) de un documento buscando
+    evidencia de firma. Revisa cada linea junto con la siguiente, por si
+    la etiqueta ("Firma:", "Docente:") y el nombre completado quedan en
+    lineas/filas separadas. Devuelve 'firma' o 'docente' segun cual
+    ancla disparo el hallazgo, o None si no se encontro evidencia."""
+    lineas_norm = [_normalizar(l) for l in lineas]
+    for i, actual in enumerate(lineas_norm):
+        siguiente = lineas_norm[i + 1] if i + 1 < len(lineas_norm) else ""
+        ventana = f"{actual} {siguiente}"
+
+        tiene_firma = any(_contiene_palabra(ventana, palabra) for palabra in PALABRAS_FIRMA)
+        tiene_docente = _contiene_palabra(ventana, "docente")
+        if not (tiene_firma or tiene_docente):
+            continue
+
+        if _nombre_coincide_fuerte(ventana, nombre_docente):
+            return "firma" if tiene_firma else "docente"
+
+    return None
+
+
+_DETALLE_HALLAZGO = {
+    "firma": "El documento menciona 'firma' junto al nombre completo del docente.",
+    "docente": "El documento tiene un campo 'Docente' completado con el nombre completo del docente (punto de firma/responsable de este tipo de documento).",
+}
 
 
 # --- PDF ----------------------------------------------------------------
@@ -58,12 +122,16 @@ def _tiene_firma_digital_pdf(contenido: bytes) -> bool:
         return False
 
 
-def _texto_pdf(contenido: bytes) -> str:
+def _lineas_pdf(contenido: bytes) -> list:
     try:
         with pdfplumber.open(BytesIO(contenido)) as pdf:
-            return "\n".join(pagina.extract_text() or "" for pagina in pdf.pages)
+            lineas = []
+            for pagina in pdf.pages:
+                texto = pagina.extract_text() or ""
+                lineas.extend(texto.split("\n"))
+            return lineas
     except Exception:
-        return ""
+        return []
 
 
 def _tiene_imagenes_pdf(contenido: bytes) -> bool:
@@ -90,12 +158,12 @@ def _analizar_pdf(contenido: bytes, nombre_docente: str) -> dict:
             "detalle": "Firma digital (certificado) detectada en el PDF.",
         }
 
-    texto = _normalizar(_texto_pdf(contenido))
-    if _menciona_firma_y_nombre(texto, nombre_docente):
+    hallazgo = _buscar_firma_en_lineas(_lineas_pdf(contenido), nombre_docente)
+    if hallazgo:
         return {
             "firma_detectada": True,
             "confianza": "media",
-            "detalle": "El texto del documento menciona 'firma' junto al nombre del docente.",
+            "detalle": _DETALLE_HALLAZGO[hallazgo],
         }
 
     if _tiene_imagenes_pdf(contenido):
@@ -111,7 +179,10 @@ def _analizar_pdf(contenido: bytes, nombre_docente: str) -> dict:
     return {
         "firma_detectada": False,
         "confianza": "media",
-        "detalle": "No se detectó firma digital, texto de firma, ni imágenes en el documento.",
+        "detalle": (
+            "No se detectó firma digital, ni un campo de 'firma' o 'Docente' completado con el nombre "
+            "del docente, ni imágenes en el documento."
+        ),
     }
 
 
@@ -135,27 +206,30 @@ def _tiene_imagenes_xlsx(contenido: bytes) -> bool:
         return False
 
 
-def _texto_xlsx(contenido: bytes) -> str:
-    """Concatena el valor de TODAS las celdas de TODAS las hojas (más
-    los comentarios de celda, donde a veces se anota "Firmado por..."),
-    para poder aplicar la misma búsqueda de palabras que en el PDF."""
+def _lineas_xlsx(contenido: bytes) -> list:
+    """Una "linea" aqui es el texto de una fila completa (todas sus
+    celdas y comentarios concatenados), para poder acotar la busqueda de
+    firma a la fila donde aparece la ancla en vez de a la hoja entera."""
     try:
         wb = load_workbook(BytesIO(contenido), data_only=True)
     except Exception:
-        return ""
+        return []
 
-    partes = []
+    lineas = []
     try:
         for hoja in wb.worksheets:
             for fila in hoja.iter_rows():
+                partes = []
                 for celda in fila:
                     if celda.value is not None:
                         partes.append(str(celda.value))
                     if celda.comment is not None and celda.comment.text:
                         partes.append(celda.comment.text)
+                if partes:
+                    lineas.append(" ".join(partes))
     finally:
         wb.close()
-    return "\n".join(partes)
+    return lineas
 
 
 def _analizar_xlsx(contenido: bytes, nombre_docente: str) -> dict:
@@ -166,12 +240,12 @@ def _analizar_xlsx(contenido: bytes, nombre_docente: str) -> dict:
             "detalle": "Firma digital (certificado) detectada en el archivo de Excel.",
         }
 
-    texto = _normalizar(_texto_xlsx(contenido))
-    if _menciona_firma_y_nombre(texto, nombre_docente):
+    hallazgo = _buscar_firma_en_lineas(_lineas_xlsx(contenido), nombre_docente)
+    if hallazgo:
         return {
             "firma_detectada": True,
             "confianza": "media",
-            "detalle": "Alguna celda (o comentario) del Excel menciona 'firma' junto al nombre del docente.",
+            "detalle": _DETALLE_HALLAZGO[hallazgo],
         }
 
     if _tiene_imagenes_xlsx(contenido):
@@ -188,9 +262,9 @@ def _analizar_xlsx(contenido: bytes, nombre_docente: str) -> dict:
         "firma_detectada": False,
         "confianza": "media",
         "detalle": (
-            "No se encontró ninguna celda con 'firma' junto al nombre del docente, ni una imagen incrustada, "
-            "en el archivo de Excel. Si el docente firmó en una hoja aparte, adjúntala también o pega la firma "
-            "escaneada en una celda del archivo."
+            "No se encontró ningún campo de 'firma' o 'Docente' completado con el nombre del docente, "
+            "ni una imagen incrustada, en el archivo de Excel. Si el docente firmó en una hoja aparte, "
+            "adjúntala también o pega la firma escaneada en una celda del archivo."
         ),
     }
 

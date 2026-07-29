@@ -28,6 +28,39 @@ function formatearFecha(iso: string): string {
   });
 }
 
+function badgeFirma(d: DocumentoEntrega) {
+  if (d.firma_detectada === true) {
+    return (
+      <span title={d.firma_detalle ?? ""} style={{ color: "var(--verde)", whiteSpace: "nowrap" }}>
+        ✅ Firma detectada
+      </span>
+    );
+  }
+  if (d.firma_detectada === false) {
+    return (
+      <span title={d.firma_detalle ?? ""} style={{ color: "var(--rojo)", whiteSpace: "nowrap" }}>
+        ❌ Sin firma
+      </span>
+    );
+  }
+  return (
+    <span title={d.firma_detalle ?? ""} style={{ color: "var(--naranja)", whiteSpace: "nowrap" }}>
+      ⚠️ Revisar manualmente
+    </span>
+  );
+}
+
+function bannerFirmas(entrega: Entrega) {
+  if (entrega.documentos.length === 0 || entrega.todos_firmados_agente) return null;
+  const pendientes = entrega.documentos.filter((d) => d.firma_detectada !== true);
+  return (
+    <p className="mensaje mensaje--warning">
+      ⚠️ El agente marcó {pendientes.length} documento{pendientes.length === 1 ? "" : "s"} para revisar antes de
+      aprobar: {pendientes.map((d) => d.nombre_archivo).join(", ")}.
+    </p>
+  );
+}
+
 interface Props {
   materiasDisponibles?: string[];
 }
@@ -209,6 +242,7 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
               <th>Tipo</th>
               <th>Materia</th>
               <th>Archivo</th>
+              <th>Firma (agente)</th>
               <th>Tamaño</th>
               <th>Subido</th>
               <th></th>
@@ -223,6 +257,7 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
                 </td>
                 <td>{d.materia ?? "—"}</td>
                 <td>{d.nombre_archivo}</td>
+                <td>{badgeFirma(d)}</td>
                 <td>{formatearTamano(d.tamano_bytes)}</td>
                 <td>{formatearFecha(d.subido_en)}</td>
                 <td>
@@ -327,6 +362,7 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
                   Aprobada por {entregas[0].revisado_por_nombre} el {formatearFecha(entregas[0].revisado_en!)}
                 </p>
               )}
+              {bannerFirmas(entregas[0])}
               {entregas[0].documentos.length > 0 && tablaDocumentos(entregas[0], entregas[0].estado !== "aprobado")}
             </details>
           )}
@@ -404,7 +440,10 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
                 {entrega.documentos.length === 0 ? (
                   <p className="texto-ayuda">Todavía no ha subido ningún documento.</p>
                 ) : (
-                  tablaDocumentos(entrega, true)
+                  <>
+                    {bannerFirmas(entrega)}
+                    {tablaDocumentos(entrega, true)}
+                  </>
                 )}
 
                 {entrega.comentario_revision && (

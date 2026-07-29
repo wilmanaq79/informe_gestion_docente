@@ -1,23 +1,33 @@
-version: "3.9"
-
-# Documenta y reproduce el entorno de base de datos ya usado por el
-# proyecto (contenedores postgres_db / pgadmin_ui). Si los contenedores ya
-# existen creados a mano, este archivo sirve como referencia; para
-# levantarlos desde cero: docker compose up -d
+# Documenta y reproduce el entorno de base de datos de ESTE proyecto
+# (Sistema de Gestion y Autoevaluacion Docente). Los nombres de
+# contenedor/volumen llevan el prefijo "gestion_docente_" a proposito: en
+# una maquina de desarrollo con varios proyectos Docker (varios docker
+# compose distintos), nombres genericos como "postgres_db" chocan entre
+# proyectos -- Docker adopta silenciosamente el primer contenedor que
+# encuentre con ese nombre, sin avisar que pertenece a OTRO proyecto (asi
+# se descubrio que este proyecto, en esta maquina, habia estado usando el
+# Postgres de un proyecto distinto por pura coincidencia de nombres).
+#
+# Para levantar TU PROPIA instancia dedicada de este proyecto (recomendado
+# si tienes el puerto 5432 libre):
+#   docker compose up -d
+# Si el puerto 5432 ya esta ocupado por otro Postgres tuyo, cambia el
+# puerto publicado de abajo (p. ej. "5433:5432") y ajusta DATABASE_URL en
+# tu .env acorde.
 
 services:
   postgres_db:
     image: postgres:16-alpine
-    container_name: postgres_db
+    container_name: gestion_docente_postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secret123}
-      POSTGRES_DB: ${POSTGRES_DB:-mydatabase}
+      POSTGRES_USER: ${POSTGRES_USER:-gestion_docente_app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cambia-esta-contrasena}
+      POSTGRES_DB: ${POSTGRES_DB:-gestion_docente}
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - gestion_docente_postgres_data:/var/lib/postgresql/data
     # Tuning para ~340 cuentas / hasta 100 conexiones concurrentes desde el
     # backend (ver seccion "Escalamiento" del README). El valor por defecto
     # de Postgres (max_connections=100) se queda corto en cuanto el backend
@@ -29,7 +39,7 @@ services:
 
   pgadmin_ui:
     image: dpage/pgadmin4:latest
-    container_name: pgadmin_ui
+    container_name: gestion_docente_pgadmin
     restart: unless-stopped
     environment:
       PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@local.test}
@@ -40,4 +50,4 @@ services:
       - postgres_db
 
 volumes:
-  postgres_data:
+  gestion_docente_postgres_data:

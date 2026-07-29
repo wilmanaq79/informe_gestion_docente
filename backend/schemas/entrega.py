@@ -11,6 +11,9 @@ class DocumentoEntregaOut(BaseModel):
     nombre_archivo: str
     tamano_bytes: int
     subido_en: datetime
+    firma_detectada: bool | None
+    firma_confianza: str | None
+    firma_detalle: str | None
 
 
 class EntregaOut(BaseModel):
@@ -31,6 +34,7 @@ class EntregaOut(BaseModel):
     notificacion_error: str | None
     creado_en: datetime
     actualizado_en: datetime
+    todos_firmados_agente: bool
     documentos: list[DocumentoEntregaOut]
 
 

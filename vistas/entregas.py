@@ -11,6 +11,7 @@ import base64
 import pandas as pd
 import streamlit as st
 
+from agente_notas.agente_firmas import analizar_documento, resumen_entrega
 from agente_notas.almacenamiento import guardar_archivo_entrega, ruta_absoluta_segura
 from agente_notas.notificaciones import notificar_entrega_aprobada
 from db.database import get_session
@@ -47,6 +48,14 @@ def _formatear_tamano(bytes_: int) -> str:
     return f"{bytes_ / (1024 * 1024):.1f} MB"
 
 
+def _etiqueta_firma(d) -> str:
+    if d.firma_detectada is True:
+        return "✅ Firma detectada"
+    if d.firma_detectada is False:
+        return "❌ Sin firma"
+    return "⚠️ Revisar manualmente"
+
+
 def _tabla_documentos(entrega) -> pd.DataFrame:
     filas = []
     for d in entrega.documentos:
@@ -58,11 +67,25 @@ def _tabla_documentos(entrega) -> pd.DataFrame:
                 "Tipo": tipo,
                 "Materia": d.materia or "—",
                 "Archivo": d.nombre_archivo,
+                "Firma (agente)": _etiqueta_firma(d),
                 "Tamaño": _formatear_tamano(d.tamano_bytes),
                 "Subido": d.subido_en.strftime("%d/%m/%Y %H:%M"),
             }
         )
     return pd.DataFrame(filas)
+
+
+def _banner_firmas(entrega) -> None:
+    if not entrega.documentos:
+        return
+    resumen = resumen_entrega(entrega.documentos)
+    if resumen["todos_firmados"]:
+        return
+    pendientes = resumen["documentos_pendientes"]
+    nombres = ", ".join(d.nombre_archivo for d in pendientes)
+    st.warning(
+        f"⚠️ El agente marcó {len(pendientes)} documento(s) para revisar antes de aprobar: {nombres}."
+    )
 
 
 def _selector_anio_semestre_corte(session, key_prefix: str):
@@ -164,6 +187,7 @@ def _render_docente(session, usuario_id, periodo, corte, corte_numero, materias_
                 st.error(f"Motivo: {entrega.comentario_revision}")
             if entrega.estado == "aprobado" and entrega.revisado_por:
                 st.caption(f"Aprobada por {entrega.revisado_por.nombre_completo} el {entrega.revisado_en.strftime('%d/%m/%Y %H:%M')}")
+            _banner_firmas(entrega)
             st.dataframe(_tabla_documentos(entrega), use_container_width=True, hide_index=True)
 
             with st.expander("👁️ Ver un documento"):
@@ -205,13 +229,29 @@ def _render_docente(session, usuario_id, periodo, corte, corte_numero, materias_
             else:
                 entrega_actual = obtener_o_crear_entrega(session, usuario_id, periodo.id, corte.id)
                 contenido = archivo.getvalue()
+                nombre_docente = st.session_state["usuario_nombre"]
+                veredicto = analizar_documento(archivo.name, contenido, nombre_docente)
+
                 ruta_relativa, tamano = guardar_archivo_entrega(
                     periodo.nombre, usuario_id, corte_numero, tipo_documento, archivo.name, contenido
                 )
                 agregar_documento_entrega(
                     session, entrega_actual.id, tipo_documento, archivo.name, ruta_relativa, tamano,
                     materia=materia.strip() or None, descripcion_otro=descripcion_otro.strip() or None,
+                    firma_detectada=veredicto["firma_detectada"],
+                    firma_confianza=veredicto["confianza"],
+                    firma_detalle=veredicto["detalle"],
                 )
+
+                if veredicto["firma_detectada"] is not True:
+                    tipo_label = TIPOS_DOCUMENTO_ENTREGA.get(tipo_documento, tipo_documento)
+                    accion = "no detectó firma" if veredicto["firma_detectada"] is False else "no pudo confirmar la firma"
+                    mensaje = (
+                        f"⚠️ {nombre_docente} subió '{archivo.name}' ({tipo_label}) para el {corte.nombre} — "
+                        f"el agente {accion} ({veredicto['detalle']}). Revísalo antes de aprobar la entrega."
+                    )
+                    notificar_usuarios(session, ids_personal_revisor(session), mensaje, entrega_id=entrega_actual.id)
+
                 st.success("Documento subido correctamente.")
                 st.rerun()
 
@@ -240,6 +280,7 @@ def _render_revisor(session, periodo_id, corte):
             if not entrega.documentos:
                 st.write("Todavía no ha subido ningún documento.")
             else:
+                _banner_firmas(entrega)
                 st.dataframe(_tabla_documentos(entrega), use_container_width=True, hide_index=True)
                 with st.expander("👁️ Ver un documento", expanded=False):
                     opciones_ver = {f"{d.tipo_documento} — {d.nombre_archivo}": d for d in entrega.documentos}

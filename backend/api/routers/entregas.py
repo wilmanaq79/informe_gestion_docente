@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from agente_notas.agente_firmas import analizar_documento, resumen_entrega
 from agente_notas.almacenamiento import guardar_archivo_entrega, ruta_absoluta_segura
 from agente_notas.notificaciones import notificar_entrega_aprobada
 from backend.api.deps import get_db, requiere_roles
@@ -39,6 +40,7 @@ ROLES_REVISORES = ("director", "secretario", "secretaria_programa")
 
 
 def _out(e: Entrega) -> EntregaOut:
+    resumen = resumen_entrega(e.documentos)
     return EntregaOut(
         id=e.id,
         docente_id=e.docente_id,
@@ -57,6 +59,7 @@ def _out(e: Entrega) -> EntregaOut:
         notificacion_error=e.notificacion_error,
         creado_en=e.creado_en,
         actualizado_en=e.actualizado_en,
+        todos_firmados_agente=resumen["todos_firmados"],
         documentos=[
             {
                 "id": d.id,
@@ -66,6 +69,9 @@ def _out(e: Entrega) -> EntregaOut:
                 "nombre_archivo": d.nombre_archivo,
                 "tamano_bytes": d.tamano_bytes,
                 "subido_en": d.subido_en,
+                "firma_detectada": d.firma_detectada,
+                "firma_confianza": d.firma_confianza,
+                "firma_detalle": d.firma_detalle,
             }
             for d in e.documentos
         ],
@@ -141,19 +147,35 @@ def subir_documento(
         raise HTTPException(status_code=400, detail="El archivo está vacío.")
 
     periodo_nombre = entrega.periodo.nombre
+    nombre_archivo = archivo.filename or "archivo"
+    veredicto = analizar_documento(nombre_archivo, contenido, usuario.nombre_completo)
+
     ruta_relativa, tamano = guardar_archivo_entrega(
-        periodo_nombre, usuario.id, corte_numero, tipo_documento, archivo.filename or "archivo", contenido
+        periodo_nombre, usuario.id, corte_numero, tipo_documento, nombre_archivo, contenido
     )
     agregar_documento_entrega(
         db,
         entrega.id,
         tipo_documento,
-        archivo.filename or "archivo",
+        nombre_archivo,
         ruta_relativa,
         tamano,
         materia=materia.strip() or None,
         descripcion_otro=descripcion_otro.strip() or None,
+        firma_detectada=veredicto["firma_detectada"],
+        firma_confianza=veredicto["confianza"],
+        firma_detalle=veredicto["detalle"],
     )
+
+    if veredicto["firma_detectada"] is not True:
+        tipo_label = TIPOS_DOCUMENTO_ENTREGA.get(tipo_documento, tipo_documento)
+        accion = "no detectó firma" if veredicto["firma_detectada"] is False else "no pudo confirmar la firma"
+        mensaje = (
+            f"⚠️ {usuario.nombre_completo} subió '{nombre_archivo}' ({tipo_label}) para el {corte.nombre} — "
+            f"el agente {accion} ({veredicto['detalle']}). Revísalo antes de aprobar la entrega."
+        )
+        notificar_usuarios(db, ids_personal_revisor(db), mensaje, entrega_id=entrega.id)
+
     return _out(entrega_con_detalle(db, entrega.id))
 
 

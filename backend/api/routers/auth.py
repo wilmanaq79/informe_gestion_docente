@@ -20,13 +20,15 @@ def _usuario_out(usuario: Usuario) -> UsuarioOut:
         rol=usuario.rol.nombre,
         activo=usuario.activo,
         acepto_tratamiento_datos=acepto_politica_vigente(usuario),
+        programa_id=usuario.programa_id,
+        programa_nombre=usuario.programa.nombre if usuario.programa else None,
     )
 
 
 @router.post("/login", response_model=TokenResponse)
 def login(datos: LoginRequest, db: Session = Depends(get_db)):
     clave_intentos = datos.username.strip().lower()
-    if bloqueado(clave_intentos):
+    if bloqueado(db, clave_intentos):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Demasiados intentos fallidos con este usuario. Intenta de nuevo en unos minutos.",
@@ -34,10 +36,10 @@ def login(datos: LoginRequest, db: Session = Depends(get_db)):
 
     usuario = autenticar(db, datos.username, datos.password)
     if usuario is None:
-        registrar_intento_fallido(clave_intentos)
+        registrar_intento_fallido(db, clave_intentos)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario o contraseña incorrectos")
 
-    limpiar(clave_intentos)
+    limpiar(db, clave_intentos)
     token = crear_access_token(usuario.id, usuario.username, usuario.rol.nombre)
     return TokenResponse(access_token=token, usuario=_usuario_out(usuario))
 

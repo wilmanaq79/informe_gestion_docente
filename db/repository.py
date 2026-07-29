@@ -110,7 +110,6 @@ def obtener_o_crear_asignacion(
     docente_id: int,
     periodo_id: int,
     asignatura: str,
-    programa: str | None,
     grupo: str | None,
     commit: bool = True,
 ) -> AsignacionAcademica:
@@ -119,7 +118,12 @@ def obtener_o_crear_asignacion(
     materias (backend/services/informe_service.py, vistas/docente.py)
     para que todo el lote se confirme o se revierta como una sola
     unidad; el caller es responsable de hacer session.commit() al
-    final o session.rollback() si alguna materia del lote falla."""
+    final o session.rollback() si alguna materia del lote falla.
+
+    El programa academico de la asignacion SIEMPRE se resuelve desde
+    docente.programa_id -- nunca se recibe como argumento (antes se
+    pasaba un string libre, hardcodeado a "Ingeniería de Sistemas" en
+    los dos callers de este proyecto)."""
     stmt = select(AsignacionAcademica).where(
         AsignacionAcademica.docente_id == docente_id,
         AsignacionAcademica.periodo_id == periodo_id,
@@ -128,11 +132,14 @@ def obtener_o_crear_asignacion(
     )
     asignacion = session.scalar(stmt)
     if asignacion is None:
+        docente = session.get(Usuario, docente_id)
+        if docente is None or docente.programa_id is None:
+            raise ValueError(f"El docente {docente_id} no existe o no tiene programa académico asignado.")
         asignacion = AsignacionAcademica(
             docente_id=docente_id,
             periodo_id=periodo_id,
             asignatura=asignatura,
-            programa=programa,
+            programa_id=docente.programa_id,
             grupo=grupo,
         )
         session.add(asignacion)
@@ -191,13 +198,13 @@ def guardar_informe_corte(
     return informe
 
 
-def listar_docentes(session) -> list[Usuario]:
+def listar_docentes(session, programa_id: int) -> list[Usuario]:
     rol_docente = session.scalar(select(Rol).where(Rol.nombre == "docente"))
     if rol_docente is None:
         return []
     stmt = (
         select(Usuario)
-        .where(Usuario.rol_id == rol_docente.id, Usuario.activo.is_(True))
+        .where(Usuario.rol_id == rol_docente.id, Usuario.activo.is_(True), Usuario.programa_id == programa_id)
         .options(
             selectinload(Usuario.asignaciones)
             .selectinload(AsignacionAcademica.informes)
@@ -208,15 +215,29 @@ def listar_docentes(session) -> list[Usuario]:
     return list(session.scalars(stmt).unique())
 
 
-def listar_usuarios(session) -> list[Usuario]:
-    return list(session.scalars(select(Usuario).options(selectinload(Usuario.rol)).order_by(Usuario.nombre_completo)))
+def listar_usuarios(session, programa_id: int) -> list[Usuario]:
+    return list(
+        session.scalars(
+            select(Usuario)
+            .where(Usuario.programa_id == programa_id)
+            .options(selectinload(Usuario.rol))
+            .order_by(Usuario.nombre_completo)
+        )
+    )
 
 
 def listar_roles(session) -> list[Rol]:
     return list(session.scalars(select(Rol).order_by(Rol.nombre)))
 
 
-def crear_usuario(session, nombre_completo, cedula, email, username, password_hash, rol_id) -> Usuario:
+def crear_usuario(
+    session, nombre_completo, cedula, email, username, password_hash, rol_id, programa_id: int | None = None
+) -> Usuario:
+    """programa_id: None solo tiene sentido para la cuenta bootstrap
+    (db/seed.py) -- todo usuario operativo (docente/director/secretario/
+    secretaria_programa) real debe crearse con el programa_id del
+    administrador que lo da de alta (ver backend/api/routers/
+    usuarios.py), nunca elegible desde el formulario."""
     usuario = Usuario(
         nombre_completo=nombre_completo,
         cedula=cedula or None,
@@ -224,6 +245,7 @@ def crear_usuario(session, nombre_completo, cedula, email, username, password_ha
         username=username.strip().lower(),
         password_hash=password_hash,
         rol_id=rol_id,
+        programa_id=programa_id,
         activo=True,
     )
     session.add(usuario)
@@ -282,7 +304,7 @@ def eliminar_informe_corte(session, informe_id: int) -> bool:
 
 
 def resumen_dashboard_institucional(
-    session, anio: int, semestre: int | None = None, corte: int | None = None
+    session, programa_id: int, anio: int, semestre: int | None = None, corte: int | None = None
 ) -> dict:
     """Agrega los datos de TODAS las asignaciones del alcance elegido (todos
     los docentes, todas las materias) para el dashboard y los informes
@@ -326,7 +348,10 @@ def resumen_dashboard_institucional(
     asignaciones = list(
         session.scalars(
             select(AsignacionAcademica)
-            .where(AsignacionAcademica.periodo_id.in_(periodo_ids))
+            .where(
+                AsignacionAcademica.periodo_id.in_(periodo_ids),
+                AsignacionAcademica.programa_id == programa_id,
+            )
             .options(
                 selectinload(AsignacionAcademica.informes).selectinload(InformeCorte.corte),
                 selectinload(AsignacionAcademica.informes).selectinload(InformeCorte.notas),
@@ -515,7 +540,12 @@ def buscar_entrega(session, docente_id: int, periodo_id: int, corte_id: int) -> 
 def obtener_o_crear_entrega(session, docente_id: int, periodo_id: int, corte_id: int) -> Entrega:
     entrega = buscar_entrega(session, docente_id, periodo_id, corte_id)
     if entrega is None:
-        entrega = Entrega(docente_id=docente_id, periodo_id=periodo_id, corte_id=corte_id)
+        docente = session.get(Usuario, docente_id)
+        if docente is None or docente.programa_id is None:
+            raise ValueError(f"El docente {docente_id} no existe o no tiene programa académico asignado.")
+        entrega = Entrega(
+            docente_id=docente_id, periodo_id=periodo_id, corte_id=corte_id, programa_id=docente.programa_id
+        )
         session.add(entrega)
         session.commit()
         session.refresh(entrega)
@@ -630,16 +660,25 @@ def eliminar_documento_entrega(session, documento_id: int) -> bool:
 
 def listar_entregas(
     session,
+    programa_id: int,
     periodo_id: int | None = None,
     corte_id: int | None = None,
     estado: str | None = None,
     docente_id: int | None = None,
     documento_docente: str | None = None,
+    limite: int = 200,
+    offset: int = 0,
 ) -> list[Entrega]:
     """documento_docente: busca por la cedula del docente (coincidencia
     parcial), para que Director/Secretario/Secretaria puedan consultar
-    las entregas de un docente especifico entre todo el historico."""
-    stmt = select(Entrega).options(
+    las entregas de un docente especifico entre todo el historico DE SU
+    PROPIO PROGRAMA.
+
+    limite/offset: sin filtro de periodo/corte/docente, esta consulta
+    puede crecer sin tope con el tiempo (mas periodos, mas docentes,
+    mas programas); el limite por defecto evita que una llamada sin
+    filtros devuelva una respuesta cada vez mas pesada."""
+    stmt = select(Entrega).where(Entrega.programa_id == programa_id).options(
         selectinload(Entrega.documentos),
         selectinload(Entrega.docente),
         selectinload(Entrega.periodo),
@@ -658,7 +697,7 @@ def listar_entregas(
         stmt = stmt.join(Usuario, Entrega.docente_id == Usuario.id).where(
             Usuario.cedula.ilike(f"%{documento_docente.strip()}%")
         )
-    stmt = stmt.order_by(Entrega.actualizado_en.desc())
+    stmt = stmt.order_by(Entrega.actualizado_en.desc()).limit(limite).offset(offset)
     return list(session.scalars(stmt).unique())
 
 
@@ -729,11 +768,13 @@ def marcar_notificacion_entrega(session, entrega_id: int, enviada: bool, error: 
         session.commit()
 
 
-def emails_personal_revisor(session) -> list[str]:
-    """Correos de todos los Directores, Secretarios Academicos y
-    Secretarias del Programa activos -- los tres roles que pueden
-    revisar/aprobar una entrega, y a quienes se notifica junto con el
-    docente cuando una entrega queda aprobada."""
+def emails_personal_revisor(session, programa_id: int) -> list[str]:
+    """Correos de los Directores, Secretarios Academicos y Secretarias
+    del Programa activos -- pero SOLO los del mismo programa_id -- los
+    tres roles que pueden revisar/aprobar una entrega, y a quienes se
+    notifica junto con el docente cuando una entrega queda aprobada.
+    Antes de esto notificaba a TODO el personal administrativo del
+    sistema entero, sin importar programa."""
     stmt = (
         select(Usuario.email)
         .join(Rol, Usuario.rol_id == Rol.id)
@@ -741,19 +782,25 @@ def emails_personal_revisor(session) -> list[str]:
             Rol.nombre.in_(("director", "secretario", "secretaria_programa")),
             Usuario.activo.is_(True),
             Usuario.email.is_not(None),
+            Usuario.programa_id == programa_id,
         )
     )
     return [e for e in session.scalars(stmt) if e]
 
 
-def ids_personal_revisor(session) -> list[int]:
-    """Ids de todos los Directores, Secretarios Academicos y Secretarias
-    del Programa activos -- para crear sus notificaciones dentro de la
-    app (independiente de si tienen correo o no)."""
+def ids_personal_revisor(session, programa_id: int) -> list[int]:
+    """Ids de los Directores, Secretarios Academicos y Secretarias del
+    Programa activos DEL MISMO programa_id -- para crear sus
+    notificaciones dentro de la app (independiente de si tienen correo
+    o no)."""
     stmt = (
         select(Usuario.id)
         .join(Rol, Usuario.rol_id == Rol.id)
-        .where(Rol.nombre.in_(("director", "secretario", "secretaria_programa")), Usuario.activo.is_(True))
+        .where(
+            Rol.nombre.in_(("director", "secretario", "secretaria_programa")),
+            Usuario.activo.is_(True),
+            Usuario.programa_id == programa_id,
+        )
     )
     return list(session.scalars(stmt))
 
@@ -813,13 +860,20 @@ def marcar_todas_notificaciones_leidas(session, usuario_id: int) -> None:
 
 # --- Repositorio de silabos y programas de asignatura ------------------------
 
-def listar_repositorio_asignaturas(session, busqueda: str | None = None) -> list[RepositorioAsignatura]:
+def listar_repositorio_asignaturas(
+    session, programa_id: int, busqueda: str | None = None
+) -> list[RepositorioAsignatura]:
     """busqueda: coincidencia parcial por nombre de asignatura o nombre
-    del docente que la dicta."""
-    stmt = select(RepositorioAsignatura).options(
-        selectinload(RepositorioAsignatura.docente),
-        selectinload(RepositorioAsignatura.creado_por),
-        selectinload(RepositorioAsignatura.actualizado_por),
+    del docente que la dicta, dentro de un mismo programa academico
+    (dos programas pueden tener una materia con el mismo nombre)."""
+    stmt = (
+        select(RepositorioAsignatura)
+        .where(RepositorioAsignatura.programa_id == programa_id)
+        .options(
+            selectinload(RepositorioAsignatura.docente),
+            selectinload(RepositorioAsignatura.creado_por),
+            selectinload(RepositorioAsignatura.actualizado_por),
+        )
     )
     if busqueda:
         patron = f"%{busqueda.strip()}%"
@@ -844,11 +898,12 @@ def repositorio_asignatura_por_id(session, id_: int) -> RepositorioAsignatura | 
 
 
 def crear_repositorio_asignatura(
-    session, asignatura: str, docente_id: int | None, creado_por_id: int
+    session, asignatura: str, docente_id: int | None, creado_por_id: int, programa_id: int
 ) -> RepositorioAsignatura:
     entrada = RepositorioAsignatura(
         asignatura=asignatura.strip(),
         docente_id=docente_id,
+        programa_id=programa_id,
         creado_por_id=creado_por_id,
         actualizado_por_id=creado_por_id,
     )

@@ -19,7 +19,6 @@ class AsignacionOut(BaseModel):
     id: int
     asignatura: str
     grupo: str | None
-    programa: str | None
     informes: list[InformeCorteOut]
 
 

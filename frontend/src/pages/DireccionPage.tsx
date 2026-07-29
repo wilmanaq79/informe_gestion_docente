@@ -206,8 +206,8 @@ export default function DireccionPage() {
       <SeccionNav secciones={SECCIONES_NAV} />
       <main className="page">
         <p className="texto-ayuda">
-          Resumen de todos los docentes del Programa de Ingeniería de Sistemas, con acceso al detalle e
-          informe PDF de cada uno.
+          Resumen de todos los docentes del Programa de {usuario?.programa_nombre ?? "tu programa"}, con acceso
+          al detalle e informe PDF de cada uno.
         </p>
 
         {error && <p className="mensaje mensaje--error">{error}</p>}

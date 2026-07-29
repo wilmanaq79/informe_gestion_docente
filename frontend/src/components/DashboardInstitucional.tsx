@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, mensajeError } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 import {
   GraficoComparacionDocentes,
   GraficoEvolucionPorCorte,
@@ -24,6 +25,7 @@ interface Props {
 }
 
 export default function DashboardInstitucional({ anio, semestre, corte }: Props) {
+  const { usuario } = useAuth();
   const [datos, setDatos] = useState<Dashboard | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -77,7 +79,7 @@ export default function DashboardInstitucional({ anio, semestre, corte }: Props)
       <h2>📊 Dashboard institucional</h2>
       <p className="texto-ayuda">
         Cómo va evolucionando el rendimiento de los estudiantes y las asignaturas en todo el Programa de
-        Ingeniería de Sistemas, para apoyar decisiones y estrategias de mejora.
+        {" "}{usuario?.programa_nombre ?? "tu programa"}, para apoyar decisiones y estrategias de mejora.
         {" "}
         <strong>Generado: {datos.generado_en}</strong>
       </p>

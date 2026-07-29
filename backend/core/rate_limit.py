@@ -1,47 +1,58 @@
 # -*- coding: utf-8 -*-
-"""Limitador de intentos de login en memoria (por proceso): protege
-/api/auth/login contra fuerza bruta y credential stuffing sin depender
-de infraestructura externa (Redis, etc.).
+"""Limitador de intentos de login, respaldado en Postgres
+(IntentoLoginFallido, db/models.py): protege /api/auth/login contra
+fuerza bruta y credential stuffing.
 
-Limitacion aceptada: si el backend llegara a correr en varias
-replicas/procesos, cada una lleva su propio contador (no es un limite
-distribuido). Para el tamano de despliegue actual (un solo proceso
-uvicorn en el VPS) esto es suficiente."""
-import time
-from collections import defaultdict
-from threading import Lock
+Se guarda en la base de datos -- y no en un diccionario en memoria del
+proceso -- porque el backend corre con varios workers de uvicorn
+(--workers, ver docs/DESPLIEGUE_VPS.md): cada worker es un proceso de
+sistema operativo con su propia memoria, así que un contador en memoria
+daría un límite efectivo de N_workers x MAX_INTENTOS en vez de
+MAX_INTENTOS -- exactamente el problema detectado en la revisión de
+escalabilidad. Con la tabla en Postgres, todos los workers comparten el
+mismo contador real."""
+from datetime import datetime, timedelta
+
+from db.models import IntentoLoginFallido
 
 MAX_INTENTOS = 5
 VENTANA_SEGUNDOS = 15 * 60
 
-_intentos: dict[str, list[float]] = defaultdict(list)
-_lock = Lock()
+
+def _fila(session, clave: str) -> IntentoLoginFallido | None:
+    return session.get(IntentoLoginFallido, clave)
 
 
-def _limpiar_viejos(clave: str, ahora: float) -> None:
-    _intentos[clave] = [t for t in _intentos[clave] if ahora - t < VENTANA_SEGUNDOS]
-    if not _intentos[clave]:
-        _intentos.pop(clave, None)
+def _ventana_vigente(fila: IntentoLoginFallido, ahora: datetime) -> bool:
+    return ahora - fila.primer_intento_en < timedelta(seconds=VENTANA_SEGUNDOS)
 
 
-def intentos_restantes(clave: str) -> int:
-    with _lock:
-        ahora = time.time()
-        _limpiar_viejos(clave, ahora)
-        return max(0, MAX_INTENTOS - len(_intentos.get(clave, [])))
+def intentos_restantes(session, clave: str) -> int:
+    fila = _fila(session, clave)
+    if fila is None or not _ventana_vigente(fila, datetime.utcnow()):
+        return MAX_INTENTOS
+    return max(0, MAX_INTENTOS - fila.intentos)
 
 
-def bloqueado(clave: str) -> bool:
-    return intentos_restantes(clave) <= 0
+def bloqueado(session, clave: str) -> bool:
+    return intentos_restantes(session, clave) <= 0
 
 
-def registrar_intento_fallido(clave: str) -> None:
-    with _lock:
-        ahora = time.time()
-        _limpiar_viejos(clave, ahora)
-        _intentos[clave].append(ahora)
+def registrar_intento_fallido(session, clave: str) -> None:
+    ahora = datetime.utcnow()
+    fila = _fila(session, clave)
+    if fila is None:
+        session.add(IntentoLoginFallido(clave=clave, intentos=1, primer_intento_en=ahora))
+    elif not _ventana_vigente(fila, ahora):
+        fila.intentos = 1
+        fila.primer_intento_en = ahora
+    else:
+        fila.intentos += 1
+    session.commit()
 
 
-def limpiar(clave: str) -> None:
-    with _lock:
-        _intentos.pop(clave, None)
+def limpiar(session, clave: str) -> None:
+    fila = _fila(session, clave)
+    if fila is not None:
+        session.delete(fila)
+        session.commit()

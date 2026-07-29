@@ -11,7 +11,7 @@ export default function Header() {
         <img src="/escudo_unpa.jpg" alt="Escudo Universidad del Pacífico" className="app-header__logo" />
         <div className="app-header__titles">
           <span className="app-header__eyebrow">Universidad del Pacífico</span>
-          <h1>Programa de Ingeniería de Sistemas</h1>
+          <h1>Programa de {usuario?.programa_nombre ?? "Gestión Docente"}</h1>
           <span className="app-header__subtitle">📋 Sistema de Gestión y Autoevaluación Docente</span>
           <br />
           <span className="app-header__piloto">Prueba piloto - Aplicación web</span>

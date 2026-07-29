@@ -420,7 +420,7 @@ def render(usuario_id: int):
 
                     stats = estadisticas_materia(r["materia"], r["grupo"], r["estudiantes"], corte)
                     asignacion = obtener_o_crear_asignacion(
-                        db_session, usuario_id, periodo.id, r["materia"], "Ingeniería de Sistemas", r["grupo"],
+                        db_session, usuario_id, periodo.id, r["materia"], r["grupo"],
                         commit=False,
                     )
                     guardar_informe_corte(

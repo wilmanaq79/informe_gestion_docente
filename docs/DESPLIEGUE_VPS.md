@@ -119,6 +119,17 @@ sudo apt install -y unattended-upgrades
 sudo dpkg-reconfigure --priority=low unattended-upgrades
 ```
 
+**Rotación de logs**: los servicios de systemd (backend y Streamlit, sección 7) no
+definen su propio archivo de log — van al `journal` de systemd, compartido por
+todo el VPS entre todos los proyectos. Confirma (o fija explícitamente) un límite
+de tamaño para que no crezca sin control a medida que aumenta el tráfico:
+```bash
+sudo nano /etc/systemd/journald.conf
+# Descomenta y ajusta:
+#   SystemMaxUse=500M
+sudo systemctl restart systemd-journald
+```
+
 **SSH endurecido** (si aún no lo hiciste): en `/etc/ssh/sshd_config`, confirma:
 ```
 PermitRootLogin no
@@ -312,7 +323,7 @@ User=deploy
 Group=deploy
 WorkingDirectory=/srv/apps/gestion-docente/repo
 Environment="PATH=/srv/apps/gestion-docente/repo/.venv/bin"
-ExecStart=/srv/apps/gestion-docente/repo/.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8001 --workers 2
+ExecStart=/srv/apps/gestion-docente/repo/.venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port 8001 --workers 4
 Restart=on-failure
 RestartSec=5
 
@@ -326,13 +337,22 @@ Notas importantes:
   reiniciando el servicio (sección 13).
 - `--host 127.0.0.1`: el backend NO se expone directamente a Internet, solo Nginx
   lo alcanza.
-- `--workers 2`: ajusta según CPUs del VPS (regla general: 2×núcleos+1, pero en un
-  VPS pequeño compartido entre varios proyectos, 2 workers por proyecto es un
-  punto de partida razonable). Cada worker abre su propio pool de conexiones a
-  Postgres (`DB_POOL_SIZE`/`DB_MAX_OVERFLOW` en `.env`, por defecto 10+10) — con
-  varios proyectos en el mismo Postgres, vigila que la suma de todos los
+- `--workers 4`: para un piloto de un solo programa con pocos docentes, 2 workers
+  alcanza; pero si el plan es crecer a varios cientos de docentes usando la app a
+  la vez (picos reales: fecha límite de entrega de notas), 4 workers es el mínimo
+  recomendado (ver la sección "Escalamiento" del `README.md`, dimensionada para
+  ~100 docentes concurrentes). Ajusta según CPUs reales del VPS (regla general:
+  2×núcleos+1). Cada worker abre su propio pool de conexiones a Postgres
+  (`DB_POOL_SIZE`/`DB_MAX_OVERFLOW` en `.env`, por defecto 10+10) — con varios
+  proyectos en el mismo Postgres, vigila que la suma de todos los
   `workers × (pool_size + max_overflow)` no supere el `max_connections` de
-  Postgres (200 en el `docker-compose.yml` de referencia de este proyecto).
+  Postgres (200 en el `docker-compose.yml` de referencia de este proyecto). Con
+  4 workers de este proyecto: `4 × 20 = 80` conexiones máx. — deja margen de 120
+  para los demás proyectos del mismo Postgres.
+- **El limitador de intentos de login (`backend/core/rate_limit.py`) está
+  respaldado en Postgres**, no en memoria del proceso — por eso es seguro subir
+  `--workers` sin que el límite de intentos fallidos se vuelva más permisivo (con
+  un límite en memoria, cada worker llevaría su propio contador independiente).
 
 ### 7.2 Streamlit
 
@@ -383,6 +403,12 @@ server {
     root /srv/apps/gestion-docente/repo/frontend/dist;
     index index.html;
 
+    # Sin esto, Nginx rechaza CUALQUIER subida mayor a 1 MB (su límite por
+    # defecto) antes de que llegue al backend -- rompería la subida de
+    # documentos firmados/sílabos normales, que el backend sí permite hasta
+    # 20 MB (backend/core/limite_tamano.py). Debe ser >= ese límite.
+    client_max_body_size 20m;
+
     # API del backend (FastAPI)
     location /api/ {
         proxy_pass http://127.0.0.1:8001;
@@ -411,6 +437,19 @@ server {
     # del cliente.
     location / {
         try_files $uri $uri/ /index.html;
+    }
+
+    # Los archivos que Vite genera en /assets/ ya llevan un hash en el
+    # nombre (p.ej. index-DlNSKjNr.css) -- si el contenido cambia, el
+    # nombre cambia, así que es seguro cachearlos "para siempre" en el
+    # navegador. index.html NUNCA se cachea (siempre debe revalidarse,
+    # es el único archivo con nombre fijo que referencia los assets).
+    location /assets/ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+    location = /index.html {
+        add_header Cache-Control "no-cache";
     }
 
     # Cabeceras de seguridad basicas
@@ -546,6 +585,16 @@ sirve Nginx directo, y Streamlit sí necesita restart si cambió `vistas/*.py`).
       del Programa) contra el dominio real, con el Aviso de Privacidad
       aceptándose correctamente y quedando registrado en
       `aceptaciones_politica_tratamiento`.
+- [ ] `client_max_body_size 20m;` en el bloque Nginx (sin esto, Nginx rechaza
+      subidas >1 MB por defecto, antes de que lleguen al backend).
+- [ ] `--workers 4` (no 2) si se espera más de un puñado de docentes usando la
+      app a la vez — probado con una subida real de documento firmado bajo carga.
+- [ ] `SystemMaxUse` de `journald` fijado explícitamente (no depender del valor
+      por defecto del sistema, compartido con otros proyectos del VPS).
+- [ ] Decisión explícita tomada sobre si Streamlit se expone a todos los
+      docentes como interfaz de producción, o si queda solo para uso interno
+      (React como interfaz oficial) — un solo proceso Streamlit sin réplicas
+      no está pensado para cientos de sesiones concurrentes.
 
 ---
 

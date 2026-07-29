@@ -94,7 +94,28 @@ class PeriodoAcademico(Base):
     activo: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     """Periodo 'actual': donde el Director/Secretario activa la carga de
     notas de los docentes. Solo uno puede estar activo a la vez (lo
-    garantiza db.repository.activar_periodo, no una constraint de BD)."""
+    garantiza db.repository.activar_periodo, no una constraint de BD).
+    Es institucional/compartido entre todos los Programa -- el calendario
+    academico NO se aisla por programa (decision de negocio)."""
+
+
+# --- Programas academicos -----------------------------------------------------
+
+class Programa(Base):
+    """Un programa academico (Ingenieria de Sistemas, Ingenieria Civil,
+    etc.). Cada uno es administrativamente independiente: su propio
+    Director, Secretario Academico, Secretaria del Programa, docentes,
+    entregas y repositorio de silabos -- ninguno ve datos de otro. El
+    calendario academico (PeriodoAcademico/Corte/EventoCalendario) es la
+    unica excepcion: sigue siendo institucional/compartido."""
+
+    __tablename__ = "programas"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(150), unique=True, nullable=False)  # "Ingeniería de Sistemas"
+    codigo: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)  # "ing-sistemas"
+    logo_ruta_archivo: Mapped[str | None] = mapped_column(String(500))
+    activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
 # --- Usuarios y asignaciones -------------------------------------------------
@@ -110,6 +131,11 @@ class Usuario(Base):
     username: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(200), nullable=False)
     rol_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), nullable=False)
+    # Nullable: la cuenta bootstrap (db/seed.py) no pertenece a ningun
+    # programa real. Todo usuario operativo (docente/director/secretario/
+    # secretaria_programa) activo SI debe tener uno -- se exige en
+    # db.repository.crear_usuario, no con NOT NULL de BD.
+    programa_id: Mapped[int | None] = mapped_column(ForeignKey("programas.id"), index=True)
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     acepto_tratamiento_datos: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -117,6 +143,7 @@ class Usuario(Base):
     version_politica_aceptada: Mapped[str | None] = mapped_column(String(20))
 
     rol: Mapped["Rol"] = relationship(back_populates="usuarios")
+    programa: Mapped["Programa | None"] = relationship()
     asignaciones: Mapped[list["AsignacionAcademica"]] = relationship(back_populates="docente")
 
 
@@ -132,11 +159,15 @@ class AsignacionAcademica(Base):
     docente_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
     periodo_id: Mapped[int] = mapped_column(ForeignKey("periodos_academicos.id"), nullable=False)
     asignatura: Mapped[str] = mapped_column(String(150), nullable=False)
-    programa: Mapped[str | None] = mapped_column(String(150))
+    # Siempre resuelto desde docente.programa_id (db.repository.
+    # obtener_o_crear_asignacion) -- nunca un valor de texto libre pasado
+    # por el caller, que es como funcionaba antes (columna 'programa' str).
+    programa_id: Mapped[int] = mapped_column(ForeignKey("programas.id"), nullable=False, index=True)
     grupo: Mapped[str | None] = mapped_column(String(30))
 
     docente: Mapped["Usuario"] = relationship(back_populates="asignaciones")
     periodo: Mapped["PeriodoAcademico"] = relationship()
+    programa: Mapped["Programa"] = relationship()
     informes: Mapped[list["InformeCorte"]] = relationship(
         back_populates="asignacion", cascade="all, delete-orphan"
     )
@@ -254,6 +285,10 @@ class Entrega(Base):
     docente_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
     periodo_id: Mapped[int] = mapped_column(ForeignKey("periodos_academicos.id"), nullable=False)
     corte_id: Mapped[int] = mapped_column(ForeignKey("cortes.id"), nullable=False)
+    # Desnormalizado desde docente.programa_id al crear (db.repository.
+    # obtener_o_crear_entrega) -- evita un JOIN a usuarios en cada
+    # listar_entregas, la consulta de mayor volumen del sistema.
+    programa_id: Mapped[int] = mapped_column(ForeignKey("programas.id"), nullable=False, index=True)
 
     estado: Mapped[str] = mapped_column(String(20), nullable=False, default="pendiente")
     documentos_firmados_confirmado: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -370,9 +405,22 @@ class RepositorioAsignatura(Base):
     cargar, actualizar, reasignar el docente o eliminar."""
 
     __tablename__ = "repositorio_asignaturas"
+    __table_args__ = (
+        UniqueConstraint("programa_id", "asignatura", name="uq_repositorio_programa_asignatura"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    asignatura: Mapped[str] = mapped_column(String(150), unique=True, nullable=False)
+    # OJO con la terminología: este 'programa_id' es el PROGRAMA ACADÉMICO
+    # (Ingeniería de Sistemas, etc. -- FK a la tabla `programas`), NO tiene
+    # relación con las columnas programa_nombre_archivo/programa_ruta_archivo/
+    # programa_tamano_bytes de más abajo, que son el archivo "programa de
+    # asignatura" (el sílabo/programa de UNA materia) -- dos sentidos
+    # distintos de la palabra "programa" que coexisten en esta misma tabla.
+    # Cada programa académico tiene sus propias materias: el nombre de
+    # asignatura ya NO es único globalmente (antes sí lo era), solo dentro
+    # de su programa (ver UniqueConstraint arriba).
+    programa_id: Mapped[int] = mapped_column(ForeignKey("programas.id"), nullable=False, index=True)
+    asignatura: Mapped[str] = mapped_column(String(150), nullable=False)
     docente_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))  # quien la dicta actualmente
 
     silabo_nombre_archivo: Mapped[str | None] = mapped_column(String(255))
@@ -391,3 +439,21 @@ class RepositorioAsignatura(Base):
     docente: Mapped["Usuario | None"] = relationship(foreign_keys=[docente_id])
     creado_por: Mapped["Usuario | None"] = relationship(foreign_keys=[creado_por_id])
     actualizado_por: Mapped["Usuario | None"] = relationship(foreign_keys=[actualizado_por_id])
+
+
+# --- Limitador de intentos de login -------------------------------------------
+
+class IntentoLoginFallido(Base):
+    """Contador de intentos fallidos de login por usuario, respaldado en
+    Postgres (no en memoria del proceso) para que el limite sea correcto
+    sin importar cuantos workers de uvicorn esten corriendo -- un
+    diccionario en memoria por proceso (la version anterior) da un
+    limite efectivo de N_workers x MAX_INTENTOS en vez de MAX_INTENTOS,
+    porque cada worker es un proceso de SO independiente con su propia
+    memoria. Ver backend/core/rate_limit.py."""
+
+    __tablename__ = "intentos_login_fallidos"
+
+    clave: Mapped[str] = mapped_column(String(50), primary_key=True)  # username normalizado
+    intentos: Mapped[int] = mapped_column(nullable=False, default=0)
+    primer_intento_en: Mapped[datetime] = mapped_column(DateTime, nullable=False)

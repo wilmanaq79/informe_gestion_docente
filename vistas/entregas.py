@@ -50,10 +50,16 @@ def _formatear_tamano(bytes_: int) -> str:
 
 def _etiqueta_firma(d) -> str:
     if d.firma_detectada is True:
-        return "✅ Firma detectada"
+        return "✅ Firmado"
     if d.firma_detectada is False:
-        return "❌ Sin firma"
-    return "⚠️ Revisar manualmente"
+        return "❌ No firmado"
+    return "⚠️ Revisión manual"
+
+
+def _recomendacion_firma(d) -> str:
+    if d.firma_detectada is True:
+        return "—"
+    return "Se recomienda revisar este documento manualmente antes de aprobar."
 
 
 def _tabla_documentos(entrega) -> pd.DataFrame:
@@ -67,7 +73,8 @@ def _tabla_documentos(entrega) -> pd.DataFrame:
                 "Tipo": tipo,
                 "Materia": d.materia or "—",
                 "Archivo": d.nombre_archivo,
-                "Firma (agente)": _etiqueta_firma(d),
+                "Firma": _etiqueta_firma(d),
+                "Recomendación": _recomendacion_firma(d),
                 "Tamaño": _formatear_tamano(d.tamano_bytes),
                 "Subido": d.subido_en.strftime("%d/%m/%Y %H:%M"),
             }

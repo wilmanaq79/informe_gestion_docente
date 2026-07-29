@@ -32,20 +32,31 @@ function badgeFirma(d: DocumentoEntrega) {
   if (d.firma_detectada === true) {
     return (
       <span title={d.firma_detalle ?? ""} style={{ color: "var(--verde)", whiteSpace: "nowrap" }}>
-        ✅ Firma detectada
+        ✅ Firmado
       </span>
     );
   }
   if (d.firma_detectada === false) {
     return (
       <span title={d.firma_detalle ?? ""} style={{ color: "var(--rojo)", whiteSpace: "nowrap" }}>
-        ❌ Sin firma
+        ❌ No firmado
       </span>
     );
   }
   return (
     <span title={d.firma_detalle ?? ""} style={{ color: "var(--naranja)", whiteSpace: "nowrap" }}>
-      ⚠️ Revisar manualmente
+      ⚠️ Revisión manual
+    </span>
+  );
+}
+
+function recomendacionFirma(d: DocumentoEntrega) {
+  if (d.firma_detectada === true) {
+    return <span className="texto-ayuda">—</span>;
+  }
+  return (
+    <span style={{ color: "var(--naranja)" }}>
+      Se recomienda revisar este documento manualmente antes de aprobar.
     </span>
   );
 }
@@ -242,7 +253,8 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
               <th>Tipo</th>
               <th>Materia</th>
               <th>Archivo</th>
-              <th>Firma (agente)</th>
+              <th>Firma</th>
+              <th>Recomendación</th>
               <th>Tamaño</th>
               <th>Subido</th>
               <th></th>
@@ -258,6 +270,7 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
                 <td>{d.materia ?? "—"}</td>
                 <td>{d.nombre_archivo}</td>
                 <td>{badgeFirma(d)}</td>
+                <td>{recomendacionFirma(d)}</td>
                 <td>{formatearTamano(d.tamano_bytes)}</td>
                 <td>{formatearFecha(d.subido_en)}</td>
                 <td>

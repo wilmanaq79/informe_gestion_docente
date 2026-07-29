@@ -21,7 +21,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 
 from db.database import SessionLocal, engine
-from db.models import AsignacionAcademica, InformeCorte, PeriodoAcademico, Usuario
+from db.models import AsignacionAcademica, InformeCorte, PeriodoAcademico, Programa, Usuario
 from db.repository import (
     corte_por_numero,
     crear_usuario,
@@ -47,9 +47,14 @@ class TestAtomicidad:
         corte = corte_por_numero(db_session, 1)
         assert corte is not None
 
+        programa = Programa(nombre=f"PYTEST Programa {uuid.uuid4().hex[:6]}", codigo=f"pytest-{uuid.uuid4().hex[:8]}")
+        db_session.add(programa)
+        db_session.flush()
+
         docente = crear_usuario(
             db_session, "PYTEST Atomicidad", None, None,
             f"__pytest_atom_{uuid.uuid4().hex[:8]}__", "hash-falso", _rol_id(db_session, "docente"),
+            programa_id=programa.id,
         )
 
         materia_ok = f"Materia OK {uuid.uuid4().hex[:6]}"
@@ -60,7 +65,7 @@ class TestAtomicidad:
         try:
             # Materia 1: se guarda sin commit (como en el lote real).
             asignacion1 = obtener_o_crear_asignacion(
-                db_session, docente.id, periodo.id, materia_ok, "Ingeniería de Sistemas", None, commit=False
+                db_session, docente.id, periodo.id, materia_ok, None, commit=False
             )
             guardar_informe_corte(db_session, asignacion1.id, 1, resumen, 3.5, 3.6, 0.4, [], commit=False)
 

@@ -86,8 +86,10 @@ def _selector_alcance(session):
 
 
 def render():
+    programa_id = st.session_state.get("usuario_programa_id")
+    programa_nombre = st.session_state.get("usuario_programa_nombre") or "tu programa"
     st.caption(
-        "Resumen de todos los docentes del Programa de Ingeniería de Sistemas, con acceso al detalle e "
+        f"Resumen de todos los docentes del Programa de {programa_nombre}, con acceso al detalle e "
         "informe PDF de cada uno."
     )
 
@@ -104,7 +106,7 @@ def render():
         calendario.render(puede_editar=True)
         st.divider()
 
-        docentes = listar_docentes(session)
+        docentes = listar_docentes(session, programa_id)
 
         if not docentes:
             st.info(
@@ -228,7 +230,12 @@ def render():
                 session = get_session()
                 try:
                     roles = {r.nombre: r.id for r in listar_roles(session)}
-                    crear_usuario(session, nombre, cedula, email, username, hash_password(password), roles[rol_sel])
+                    # El nuevo usuario siempre queda en el mismo programa de
+                    # quien lo crea -- nunca elegible desde el formulario.
+                    crear_usuario(
+                        session, nombre, cedula, email, username, hash_password(password), roles[rol_sel],
+                        programa_id=st.session_state.get("usuario_programa_id"),
+                    )
                     st.success(f"Usuario '{username}' creado con rol '{rol_sel}'.")
                 except Exception as exc:
                     session.rollback()
@@ -239,7 +246,7 @@ def render():
     with st.expander("Ver usuarios registrados"):
         session = get_session()
         try:
-            usuarios = listar_usuarios(session)
+            usuarios = listar_usuarios(session, st.session_state.get("usuario_programa_id"))
             st.dataframe(
                 pd.DataFrame(
                     [

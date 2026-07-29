@@ -37,9 +37,9 @@ def reporte_docente(
     semestre: int | None = Query(None, ge=1, le=2, description="1 o 2. Si se omite, incluye ambos semestres del año."),
     corte: int | None = Query(None, ge=1, le=3, description="1, 2 o 3. Si se omite, muestra el historial completo de cortes."),
     db: Session = Depends(get_db),
-    _usuario=Depends(requiere_roles("director", "secretario")),
+    usuario=Depends(requiere_roles("director", "secretario")),
 ):
-    docentes = listar_docentes(db)
+    docentes = listar_docentes(db, usuario.programa_id)
     docente = next((d for d in docentes if d.id == docente_id), None)
     if docente is None:
         raise HTTPException(status_code=404, detail="Docente no encontrado")
@@ -65,17 +65,18 @@ def reporte_consolidado(
     semestre: int | None = Query(None, ge=1, le=2, description="1 o 2. Si se omite, incluye ambos semestres del año."),
     corte: int | None = Query(None, ge=1, le=3, description="1, 2 o 3. Si se omite, usa el corte mas reciente de cada materia."),
     db: Session = Depends(get_db),
-    _usuario=Depends(requiere_roles("director")),
+    usuario=Depends(requiere_roles("director")),
 ):
-    """Un solo PDF con el informe de TODOS los docentes. Restringido solo al
-    rol 'director' (el secretario no tiene este boton)."""
-    docentes = listar_docentes(db)
+    """Un solo PDF con el informe de TODOS los docentes DE TU PROGRAMA.
+    Restringido solo al rol 'director' (el secretario no tiene este
+    boton)."""
+    docentes = listar_docentes(db, usuario.programa_id)
     if not docentes:
         raise HTTPException(status_code=404, detail="No hay docentes registrados todavía.")
 
     anio, periodo_ids = _resolver_alcance(db, anio, semestre)
     etiqueta = describir_alcance(anio, semestre, corte)
-    resumen = resumen_dashboard_institucional(db, anio, semestre, corte)
+    resumen = resumen_dashboard_institucional(db, usuario.programa_id, anio, semestre, corte)
 
     buffer = io.BytesIO()
     generar_reporte_consolidado(

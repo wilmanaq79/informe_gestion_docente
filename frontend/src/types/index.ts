@@ -5,6 +5,8 @@ export interface Usuario {
   rol: "docente" | "director" | "secretario" | "secretaria_programa";
   activo: boolean;
   acepto_tratamiento_datos: boolean;
+  programa_id: number | null;
+  programa_nombre: string | null;
 }
 
 export interface Politica {

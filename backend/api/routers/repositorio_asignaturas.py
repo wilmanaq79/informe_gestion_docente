@@ -17,7 +17,7 @@ from agente_notas.almacenamiento import (
     ruta_absoluta_segura,
     tipo_y_disposicion,
 )
-from backend.api.deps import get_db, requiere_roles
+from backend.api.deps import get_db, requiere_roles, verificar_pertenece_a_programa
 from backend.schemas.repositorio_asignatura import (
     RepositorioAsignaturaCreate,
     RepositorioAsignaturaOut,
@@ -73,16 +73,17 @@ def _out(e: RepositorioAsignatura) -> RepositorioAsignaturaOut:
 def listar(
     busqueda: str | None = None,
     db: Session = Depends(get_db),
-    _usuario: Usuario = Depends(requiere_roles(*ROLES_TODOS)),
+    usuario: Usuario = Depends(requiere_roles(*ROLES_TODOS)),
 ):
-    return [_out(e) for e in listar_repositorio_asignaturas(db, busqueda=busqueda)]
+    return [_out(e) for e in listar_repositorio_asignaturas(db, usuario.programa_id, busqueda=busqueda)]
 
 
 @router.get("/{id_}", response_model=RepositorioAsignaturaOut)
-def detalle(id_: int, db: Session = Depends(get_db), _usuario: Usuario = Depends(requiere_roles(*ROLES_TODOS))):
+def detalle(id_: int, db: Session = Depends(get_db), usuario: Usuario = Depends(requiere_roles(*ROLES_TODOS))):
     entrada = repositorio_asignatura_por_id(db, id_)
     if entrada is None:
         raise HTTPException(status_code=404, detail="Asignatura no encontrada en el repositorio")
+    verificar_pertenece_a_programa(entrada.programa_id, usuario)
     return _out(entrada)
 
 
@@ -95,7 +96,7 @@ def crear(
     if not datos.asignatura.strip():
         raise HTTPException(status_code=400, detail="El nombre de la asignatura es obligatorio.")
     try:
-        entrada = crear_repositorio_asignatura(db, datos.asignatura, datos.docente_id, usuario.id)
+        entrada = crear_repositorio_asignatura(db, datos.asignatura, datos.docente_id, usuario.id, usuario.programa_id)
     except Exception as exc:
         db.rollback()
         raise HTTPException(status_code=400, detail=f"No se pudo crear (¿ya existe esa asignatura?): {exc}")
@@ -109,6 +110,11 @@ def actualizar(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_roles(*ROLES_EDITORES)),
 ):
+    entrada_previa = repositorio_asignatura_por_id(db, id_)
+    if entrada_previa is None:
+        raise HTTPException(status_code=404, detail="Asignatura no encontrada en el repositorio")
+    verificar_pertenece_a_programa(entrada_previa.programa_id, usuario)
+
     campos_provistos = datos.model_fields_set
     asignatura = datos.asignatura if "asignatura" in campos_provistos else None
     docente_id = datos.docente_id if "docente_id" in campos_provistos else -1
@@ -122,8 +128,13 @@ def actualizar(
 
 @router.delete("/{id_}")
 def eliminar(
-    id_: int, db: Session = Depends(get_db), _usuario: Usuario = Depends(requiere_roles(*ROLES_EDITORES))
+    id_: int, db: Session = Depends(get_db), usuario: Usuario = Depends(requiere_roles(*ROLES_EDITORES))
 ):
+    entrada = repositorio_asignatura_por_id(db, id_)
+    if entrada is None:
+        raise HTTPException(status_code=404, detail="Asignatura no encontrada en el repositorio")
+    verificar_pertenece_a_programa(entrada.programa_id, usuario)
+
     if not eliminar_repositorio_asignatura(db, id_):
         raise HTTPException(status_code=404, detail="Asignatura no encontrada en el repositorio")
     return {"ok": True}
@@ -151,6 +162,10 @@ def subir_silabo(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_roles(*ROLES_EDITORES)),
 ):
+    entrada_previa = repositorio_asignatura_por_id(db, id_)
+    if entrada_previa is None:
+        raise HTTPException(status_code=404, detail="Asignatura no encontrada en el repositorio")
+    verificar_pertenece_a_programa(entrada_previa.programa_id, usuario)
     return _out(_subir(db, id_, archivo, usuario, "silabo"))
 
 
@@ -164,6 +179,7 @@ def subir_programa(
     entrada = repositorio_asignatura_por_id(db, id_)
     if entrada is None:
         raise HTTPException(status_code=404, detail="Asignatura no encontrada en el repositorio")
+    verificar_pertenece_a_programa(entrada.programa_id, usuario)
     _verificar_permiso_programa(entrada, usuario)
     return _out(_subir(db, id_, archivo, usuario, "programa"))
 
@@ -172,6 +188,11 @@ def subir_programa(
 def borrar_silabo(
     id_: int, db: Session = Depends(get_db), usuario: Usuario = Depends(requiere_roles(*ROLES_EDITORES))
 ):
+    entrada = repositorio_asignatura_por_id(db, id_)
+    if entrada is None:
+        raise HTTPException(status_code=404, detail="Asignatura no encontrada en el repositorio")
+    verificar_pertenece_a_programa(entrada.programa_id, usuario)
+
     if not quitar_silabo(db, id_, usuario.id):
         raise HTTPException(status_code=404, detail="No hay sílabo cargado para esta asignatura.")
     return {"ok": True}
@@ -184,6 +205,7 @@ def borrar_programa(
     entrada = repositorio_asignatura_por_id(db, id_)
     if entrada is None:
         raise HTTPException(status_code=404, detail="Asignatura no encontrada en el repositorio")
+    verificar_pertenece_a_programa(entrada.programa_id, usuario)
     _verificar_permiso_programa(entrada, usuario)
     if not quitar_programa(db, id_, usuario.id):
         raise HTTPException(status_code=404, detail="No hay programa de asignatura cargado para esta materia.")
@@ -207,16 +229,18 @@ def _descargar(ruta_archivo: str | None, nombre_archivo: str | None):
 
 
 @router.get("/{id_}/silabo/descargar")
-def descargar_silabo(id_: int, db: Session = Depends(get_db), _usuario: Usuario = Depends(requiere_roles(*ROLES_TODOS))):
+def descargar_silabo(id_: int, db: Session = Depends(get_db), usuario: Usuario = Depends(requiere_roles(*ROLES_TODOS))):
     entrada = repositorio_asignatura_por_id(db, id_)
     if entrada is None:
         raise HTTPException(status_code=404, detail="Asignatura no encontrada en el repositorio")
+    verificar_pertenece_a_programa(entrada.programa_id, usuario)
     return _descargar(entrada.silabo_ruta_archivo, entrada.silabo_nombre_archivo)
 
 
 @router.get("/{id_}/programa/descargar")
-def descargar_programa(id_: int, db: Session = Depends(get_db), _usuario: Usuario = Depends(requiere_roles(*ROLES_TODOS))):
+def descargar_programa(id_: int, db: Session = Depends(get_db), usuario: Usuario = Depends(requiere_roles(*ROLES_TODOS))):
     entrada = repositorio_asignatura_por_id(db, id_)
     if entrada is None:
         raise HTTPException(status_code=404, detail="Asignatura no encontrada en el repositorio")
+    verificar_pertenece_a_programa(entrada.programa_id, usuario)
     return _descargar(entrada.programa_ruta_archivo, entrada.programa_nombre_archivo)

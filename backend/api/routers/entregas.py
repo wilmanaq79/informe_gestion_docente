@@ -7,7 +7,7 @@ rechazar una entrega. Al aprobarla se notifica por correo a los tres
 roles y al docente."""
 import io
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -20,8 +20,9 @@ from agente_notas.almacenamiento import (
     tipo_y_disposicion,
 )
 from agente_notas.notificaciones import notificar_entrega_aprobada
-from backend.api.deps import get_db, requiere_roles
+from backend.api.deps import get_db, requiere_roles, verificar_pertenece_a_programa
 from backend.schemas.entrega import AprobarEntregaIn, EntregaOut, RechazarEntregaIn
+from db.database import get_session
 from db.models import TIPOS_DOCUMENTO_ENTREGA, Entrega, Usuario
 from db.repository import (
     agregar_documento_entrega,
@@ -92,6 +93,7 @@ def _out(e: Entrega) -> EntregaOut:
 def _verificar_acceso_entrega(entrega: Entrega, usuario: Usuario) -> None:
     if usuario.rol.nombre == "docente" and entrega.docente_id != usuario.id:
         raise HTTPException(status_code=403, detail="No puedes ver la entrega de otro docente.")
+    verificar_pertenece_a_programa(entrega.programa_id, usuario)
 
 
 @router.get("/tipos-documento")
@@ -116,7 +118,7 @@ def listar(
     # 'documento' (cedula) solo tiene sentido para los roles revisores: un
     # docente solo ve las suyas de todas formas (docente_id ya lo fuerza).
     entregas = listar_entregas(
-        db, periodo_id=periodo_id, corte_id=corte_id, estado=estado, docente_id=docente_id,
+        db, usuario.programa_id, periodo_id=periodo_id, corte_id=corte_id, estado=estado, docente_id=docente_id,
         documento_docente=documento if usuario.rol.nombre != "docente" else None,
     )
     return [_out(e) for e in entregas]
@@ -188,7 +190,7 @@ def subir_documento(
             f"⚠️ {usuario.nombre_completo} subió '{nombre_archivo}' ({tipo_label}) para el {corte.nombre} — "
             f"el agente {accion} ({veredicto['detalle']}). Revísalo antes de aprobar la entrega."
         )
-        notificar_usuarios(db, ids_personal_revisor(db), mensaje, entrega_id=entrega.id)
+        notificar_usuarios(db, ids_personal_revisor(db, usuario.programa_id), mensaje, entrega_id=entrega.id)
 
     return _out(entrega_con_detalle(db, entrega.id))
 
@@ -261,34 +263,57 @@ def confirmar_revision(
     return _out(entrega_con_detalle(db, documento.entrega_id))
 
 
+def _enviar_correo_aprobacion_en_segundo_plano(
+    entrega_id: int, docente_nombre: str, docente_email: str | None,
+    periodo_nombre: str, corte_nombre: str, revisor_nombre: str, destinatarios: list[str],
+) -> None:
+    """Corre DESPUÉS de que la respuesta HTTP ya se envió (FastAPI
+    BackgroundTasks) -- el envío de correo por SMTP es síncrono y puede
+    tardar varios segundos; bloquear la respuesta de "Aprobar entrega"
+    hasta que el SMTP responda es una latencia innecesaria para
+    Director/Secretario/Secretaria, sobre todo en picos de aprobaciones
+    (fecha límite de notas). Abre su PROPIA sesión de BD porque la del
+    request ya se cerró para cuando esta función corre."""
+    enviado, error = notificar_entrega_aprobada(
+        docente_nombre, docente_email, periodo_nombre, corte_nombre, revisor_nombre, destinatarios,
+    )
+    session = get_session()
+    try:
+        marcar_notificacion_entrega(session, entrega_id, enviado, error)
+    finally:
+        session.close()
+
+
 @router.post("/{entrega_id}/aprobar", response_model=EntregaOut)
 def aprobar(
     entrega_id: int,
     datos: AprobarEntregaIn,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_roles(*ROLES_REVISORES)),
 ):
+    entrega_previa = entrega_con_detalle(db, entrega_id)
+    if entrega_previa is None:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+    verificar_pertenece_a_programa(entrega_previa.programa_id, usuario)
+
     try:
         entrega = aprobar_entrega(db, entrega_id, usuario.id, datos.comentario)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    destinatarios = emails_personal_revisor(db)
-    enviado, error = notificar_entrega_aprobada(
-        entrega.docente.nombre_completo,
-        entrega.docente.email,
-        entrega.periodo.nombre,
-        entrega.corte.nombre,
-        usuario.nombre_completo,
-        destinatarios,
+    destinatarios = emails_personal_revisor(db, entrega.programa_id)
+    background_tasks.add_task(
+        _enviar_correo_aprobacion_en_segundo_plano,
+        entrega_id, entrega.docente.nombre_completo, entrega.docente.email,
+        entrega.periodo.nombre, entrega.corte.nombre, usuario.nombre_completo, destinatarios,
     )
-    marcar_notificacion_entrega(db, entrega_id, enviado, error)
 
     mensaje = (
         f"La entrega de {entrega.docente.nombre_completo} ({entrega.periodo.nombre}, {entrega.corte.nombre}) "
         f"fue APROBADA por {usuario.nombre_completo}."
     )
-    destinatarios_ids = ids_personal_revisor(db) + [entrega.docente_id]
+    destinatarios_ids = ids_personal_revisor(db, entrega.programa_id) + [entrega.docente_id]
     notificar_usuarios(db, destinatarios_ids, mensaje, entrega_id=entrega.id)
 
     return _out(entrega_con_detalle(db, entrega_id))
@@ -301,6 +326,11 @@ def rechazar(
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_roles(*ROLES_REVISORES)),
 ):
+    entrega_previa = entrega_con_detalle(db, entrega_id)
+    if entrega_previa is None:
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+    verificar_pertenece_a_programa(entrega_previa.programa_id, usuario)
+
     try:
         entrega = rechazar_entrega(db, entrega_id, usuario.id, datos.comentario)
     except ValueError as exc:
@@ -310,7 +340,7 @@ def rechazar(
         f"La entrega de {entrega.docente.nombre_completo} ({entrega.periodo.nombre}, {entrega.corte.nombre}) "
         f"fue RECHAZADA por {usuario.nombre_completo}: {datos.comentario}"
     )
-    destinatarios_ids = ids_personal_revisor(db) + [entrega.docente_id]
+    destinatarios_ids = ids_personal_revisor(db, entrega.programa_id) + [entrega.docente_id]
     notificar_usuarios(db, destinatarios_ids, mensaje, entrega_id=entrega.id)
 
     return _out(entrega_con_detalle(db, entrega_id))

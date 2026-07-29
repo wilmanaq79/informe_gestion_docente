@@ -123,7 +123,7 @@ def procesar_materias(db_session, docente_id: int, excel_stream, corte: int, ite
                     conteo_estado[fila["estado"]] = conteo_estado.get(fila["estado"], 0) + 1
 
                 asignacion = obtener_o_crear_asignacion(
-                    db_session, docente_id, periodo.id, materia, "Ingeniería de Sistemas", grupo, commit=False
+                    db_session, docente_id, periodo.id, materia, grupo, commit=False
                 )
                 guardar_informe_corte(
                     db_session,

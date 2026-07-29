@@ -70,3 +70,24 @@ def requiere_roles(*roles_permitidos: str):
         return usuario
 
     return dependencia
+
+
+def verificar_pertenece_a_programa(programa_id_entidad: int | None, usuario: Usuario) -> None:
+    """Bloquea el acceso si una entidad (docente, entrega, informe,
+    entrada del repositorio de asignaturas...) no pertenece al mismo
+    programa academico que el usuario autenticado. Cada programa es
+    administrativamente independiente -- un Director/Secretario/
+    Secretaria del Programa X nunca debe poder ver ni modificar datos
+    del Programa Y, aunque conozca su id.
+
+    Generaliza el mismo tipo de chequeo que ya hacian
+    _verificar_acceso_entrega (backend/api/routers/entregas.py) y
+    _verificar_permiso_programa (backend/api/routers/
+    repositorio_asignaturas.py) para "es tu propio recurso" -- este es
+    el control ortogonal de "es de tu programa", y se usa ADEMAS de
+    esos, no en su reemplazo."""
+    if usuario.programa_id is None or programa_id_entidad != usuario.programa_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No puedes acceder a datos de otro programa académico.",
+        )

@@ -2,14 +2,14 @@
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from backend.api.deps import get_db, requiere_roles
+from backend.api.deps import get_db, requiere_roles, verificar_pertenece_a_programa
 from backend.schemas.informe import (
     AsistenciaPreviewOut,
     PdfPreviewOut,
     ProcesarResponseOut,
 )
 from backend.services import informe_service
-from db.models import Usuario
+from db.models import AsignacionAcademica, InformeCorte, Usuario
 from db.repository import eliminar_informe_corte
 
 router = APIRouter(prefix="/api/informes", tags=["informes"])
@@ -85,12 +85,20 @@ def procesar(
 def borrar_informe(
     informe_id: int,
     db: Session = Depends(get_db),
-    _usuario: Usuario = Depends(requiere_roles("director")),
+    usuario: Usuario = Depends(requiere_roles("director")),
 ):
     """Borra un informe de corte ya guardado. Restringido SOLO al rol
     'director' (ni el docente ni el secretario pueden borrar), para que un
     error de un docente en pleno proceso no le bloquee su propio trabajo ni
     el de los demas -- solo el director puede limpiar datos de prueba o
-    corregir un informe mal cargado."""
+    corregir un informe mal cargado. Ademas, solo el director de SU PROPIO
+    programa academico puede borrarlo (antes no habia ninguna verificacion
+    de pertenencia, ni siquiera de docente)."""
+    informe = db.get(InformeCorte, informe_id)
+    if informe is None:
+        raise HTTPException(status_code=404, detail="Informe no encontrado")
+    asignacion = db.get(AsignacionAcademica, informe.asignacion_id)
+    verificar_pertenece_a_programa(asignacion.programa_id if asignacion else None, usuario)
+
     if not eliminar_informe_corte(db, informe_id):
         raise HTTPException(status_code=404, detail="Informe no encontrado")

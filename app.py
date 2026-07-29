@@ -1,6 +1,7 @@
 """
-Sistema de Gestión y Autoevaluación Docente -- Programa de Ingeniería de
-Sistemas, Universidad del Pacífico.
+Sistema de Gestión y Autoevaluación Docente -- Universidad del Pacífico
+(multi-programa: cada Director/Secretario/Secretaria/Docente pertenece a
+un unico programa academico, ver db.models.Programa).
 
 Punto de entrada de la aplicacion Streamlit: header institucional, control
 de acceso (login) y enrutamiento por rol (docente / director / secretario).
@@ -28,10 +29,14 @@ RAIZ = Path(__file__).resolve().parent
 ESCUDO_UNPA = RAIZ / "assets" / "escudo_unpa.jpg"
 LOGO_PROGRAMA = RAIZ / "assets" / "logo_programa.png"
 
-st.set_page_config(page_title="Gestión Docente — Ing. de Sistemas UNPA", page_icon="📋", layout="wide")
+st.set_page_config(page_title="Gestión Docente — UNPA", page_icon="📋", layout="wide")
 
 
-def mostrar_encabezado():
+def mostrar_encabezado(programa_nombre: str | None = None):
+    # Antes de iniciar sesion no se conoce el programa del usuario -- se
+    # muestra un nombre generico hasta que haya sesion (ver la llamada al
+    # final del archivo, que pasa el programa de session_state si existe).
+    titulo_programa = f"Programa de {programa_nombre}" if programa_nombre else "Gestión Docente"
     col_izq, col_centro, col_der = st.columns([1, 4, 1])
     with col_izq:
         if ESCUDO_UNPA.exists():
@@ -41,7 +46,7 @@ def mostrar_encabezado():
             "<div style='text-align:center'>"
             "<div style='font-size:1.05rem; opacity:0.75;'>Universidad del Pacífico</div>"
             "<div style='font-size:1.6rem; font-weight:700; line-height:1.2;'>"
-            "Programa de Ingeniería de Sistemas</div>"
+            f"{titulo_programa}</div>"
             "<div style='font-size:1.05rem; opacity:0.85;'>"
             "📋 Sistema de Gestión y Autoevaluación Docente</div>"
             "</div>",
@@ -62,12 +67,15 @@ def mostrar_barra_usuario():
         )
     with col_salir:
         if st.button("Cerrar sesión", use_container_width=True):
-            for clave in ["usuario_id", "usuario_nombre", "usuario_rol", "usuario_username"]:
+            for clave in [
+                "usuario_id", "usuario_nombre", "usuario_rol", "usuario_username",
+                "usuario_programa_id", "usuario_programa_nombre",
+            ]:
                 st.session_state.pop(clave, None)
             st.rerun()
 
 
-mostrar_encabezado()
+mostrar_encabezado(st.session_state.get("usuario_programa_nombre"))
 
 if "usuario_id" not in st.session_state:
     login.render()

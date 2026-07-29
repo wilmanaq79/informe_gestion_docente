@@ -13,6 +13,8 @@ class UsuarioOut(BaseModel):
     rol: str
     activo: bool
     acepto_tratamiento_datos: bool
+    programa_id: int | None
+    programa_nombre: str | None
 
 
 class TokenResponse(BaseModel):

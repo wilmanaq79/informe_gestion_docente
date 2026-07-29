@@ -27,6 +27,8 @@ def render():
                         "usuario_nombre": usuario.nombre_completo,
                         "usuario_rol": usuario.rol.nombre,
                         "usuario_username": usuario.username,
+                        "usuario_programa_id": usuario.programa_id,
+                        "usuario_programa_nombre": usuario.programa.nombre if usuario.programa else None,
                     }
                 else:
                     datos = None

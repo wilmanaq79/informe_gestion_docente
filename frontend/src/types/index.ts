@@ -221,6 +221,9 @@ export interface DocumentoEntrega {
   nombre_archivo: string;
   tamano_bytes: number;
   subido_en: string;
+  firma_detectada: boolean | null;
+  firma_confianza: string | null;
+  firma_detalle: string | null;
 }
 
 export interface Entrega {
@@ -241,6 +244,7 @@ export interface Entrega {
   notificacion_error: string | null;
   creado_en: string;
   actualizado_en: string;
+  todos_firmados_agente: boolean;
   documentos: DocumentoEntrega[];
 }
 

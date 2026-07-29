@@ -525,6 +525,9 @@ def agregar_documento_entrega(
     tamano_bytes: int,
     materia: str | None = None,
     descripcion_otro: str | None = None,
+    firma_detectada: bool | None = None,
+    firma_confianza: str | None = None,
+    firma_detalle: str | None = None,
 ) -> DocumentoEntrega:
     entrega = session.get(Entrega, entrega_id)
     if entrega is None:
@@ -538,6 +541,9 @@ def agregar_documento_entrega(
         nombre_archivo=nombre_archivo,
         ruta_archivo=ruta_archivo,
         tamano_bytes=tamano_bytes,
+        firma_detectada=firma_detectada,
+        firma_confianza=firma_confianza,
+        firma_detalle=firma_detalle,
     )
     session.add(documento)
     _volver_a_pendiente(entrega)

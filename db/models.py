@@ -285,6 +285,13 @@ class DocumentoEntrega(Base):
     tamano_bytes: Mapped[int] = mapped_column(nullable=False)
     subido_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
+    # Veredicto del agente de verificacion de firmas (agente_notas.agente_firmas),
+    # calculado automaticamente al subir el archivo. None = indeterminado
+    # (requiere revision humana, p.ej. firma manuscrita escaneada).
+    firma_detectada: Mapped[bool | None] = mapped_column(Boolean)
+    firma_confianza: Mapped[str | None] = mapped_column(String(10))
+    firma_detalle: Mapped[str | None] = mapped_column(String(300))
+
     entrega: Mapped["Entrega"] = relationship(back_populates="documentos")
 
 

@@ -47,16 +47,24 @@ def describir_alcance(anio: int, semestre: int | None = None, corte: int | None 
     return " · ".join(partes)
 
 
-def _encabezado(story, styles, etiqueta_alcance):
+def _encabezado(story, styles, etiqueta_alcance, programa_nombre: str, logo_ruta: Path | None = None):
+    """programa_nombre: nombre del programa académico del docente/alcance
+    de este informe (cada programa ve su propio nombre en el
+    encabezado, en vez del literal fijo "Ingeniería de Sistemas").
+    logo_ruta: logo específico del programa (Programa.logo_ruta_archivo);
+    si el programa no tiene uno propio cargado, se usa el logo genérico
+    compartido (LOGO_PROGRAMA)."""
+    logo_a_usar = logo_ruta if logo_ruta is not None and logo_ruta.exists() else LOGO_PROGRAMA
+
     logos = []
     if ESCUDO_UNPA.exists():
         logos.append(Image(str(ESCUDO_UNPA), width=1.8 * cm, height=1.8 * cm))
-    if LOGO_PROGRAMA.exists():
-        logos.append(Image(str(LOGO_PROGRAMA), width=3.2 * cm, height=1.8 * cm))
+    if logo_a_usar.exists():
+        logos.append(Image(str(logo_a_usar), width=3.2 * cm, height=1.8 * cm))
 
     titulo = Paragraph(
         "<b>Universidad del Pacífico</b><br/>"
-        "Programa de Ingeniería de Sistemas<br/>"
+        f"Programa de {programa_nombre}<br/>"
         "Informe de Gestión y Autoevaluación Docente",
         ParagraphStyle("titulo", parent=styles["Normal"], fontSize=12, leading=15, textColor=AZUL),
     )
@@ -291,7 +299,8 @@ def _seccion_resumen_institucional(story, styles, resumen: dict):
 
 
 def generar_reporte_docente(
-    docente, ruta_salida, etiqueta_alcance="2026-1", periodo_ids=None, corte_filtro=None
+    docente, ruta_salida, etiqueta_alcance="2026-1", periodo_ids=None, corte_filtro=None,
+    programa_nombre: str = "Gestión Docente", logo_ruta: Path | None = None,
 ):
     """docente: instancia de db.models.Usuario con .asignaciones precargadas
     (cada asignacion con .informes -> .corte y .notas).
@@ -301,6 +310,8 @@ def generar_reporte_docente(
     periodo_ids: ids de PeriodoAcademico a incluir (None = todos).
     corte_filtro: si se indica, cada materia solo muestra el informe de
     ese corte.
+    programa_nombre/logo_ruta: nombre y logo del programa académico del
+    docente (cada programa ve su propio encabezado, no uno fijo).
 
     ruta_salida puede ser una ruta (str/Path) o un objeto tipo archivo
     (p.ej. io.BytesIO, para devolver el PDF sin tocar disco desde la API)."""
@@ -311,21 +322,24 @@ def generar_reporte_docente(
         topMargin=1.2 * cm, bottomMargin=1.2 * cm, leftMargin=1.5 * cm, rightMargin=1.5 * cm,
     )
     story = []
-    _encabezado(story, styles, etiqueta_alcance)
+    _encabezado(story, styles, etiqueta_alcance, programa_nombre, logo_ruta)
     _seccion_docente(story, styles, docente, etiqueta_alcance, periodo_ids, corte_filtro)
     doc.build(story)
     return ruta_salida
 
 
 def generar_reporte_consolidado(
-    docentes, ruta_salida, etiqueta_alcance="2026-1", periodo_ids=None, corte_filtro=None, resumen_dashboard=None
+    docentes, ruta_salida, etiqueta_alcance="2026-1", periodo_ids=None, corte_filtro=None, resumen_dashboard=None,
+    programa_nombre: str = "Gestión Docente", logo_ruta: Path | None = None,
 ):
-    """Un solo PDF con el informe de TODOS los docentes recibidos, cada uno
-    en su propia pagina. docentes: lista de db.models.Usuario (con
-    .asignaciones precargadas, igual que generar_reporte_docente).
+    """Un solo PDF con el informe de TODOS los docentes recibidos (de UN
+    mismo programa académico), cada uno en su propia pagina. docentes:
+    lista de db.models.Usuario (con .asignaciones precargadas, igual
+    que generar_reporte_docente).
 
     etiqueta_alcance/periodo_ids/corte_filtro: igual que en
     generar_reporte_docente, aplicados a cada docente del consolidado.
+    programa_nombre/logo_ruta: igual que en generar_reporte_docente.
 
     resumen_dashboard: dict devuelto por
     db.repository.resumen_dashboard_institucional(); si se pasa, se agrega
@@ -338,7 +352,7 @@ def generar_reporte_consolidado(
         topMargin=1.2 * cm, bottomMargin=1.2 * cm, leftMargin=1.5 * cm, rightMargin=1.5 * cm,
     )
     story = []
-    _encabezado(story, styles, etiqueta_alcance)
+    _encabezado(story, styles, etiqueta_alcance, programa_nombre, logo_ruta)
     story.append(
         Paragraph(
             f"Informe consolidado — {len(docentes)} docente(s)",

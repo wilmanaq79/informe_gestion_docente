@@ -10,7 +10,7 @@ Documentación interactiva: http://localhost:8000/docs
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api.deps import requiere_consentimiento
+from backend.api.deps import requiere_consentimiento, requiere_password_actualizada
 from backend.api.routers import (
     auth,
     calendario,
@@ -46,14 +46,15 @@ app.add_middleware(
 )
 app.middleware("http")(limitar_tamano_request)
 
-# auth y consentimiento quedan SIN el gate de consentimiento: deben
-# seguir funcionando antes de que el usuario acepte (login, /auth/me,
+# auth y consentimiento quedan SIN los gates de negocio: deben seguir
+# funcionando antes de que el usuario cambie su contrasena temporal o
+# acepte la politica (login, /auth/me, cambiar-password, recuperacion,
 # consultar y aceptar la politica). Todos los demas routers de negocio
-# exigen que el usuario ya haya aceptado la version vigente.
+# exigen primero una contrasena ya rotada y luego la politica vigente.
 app.include_router(auth.router)
 app.include_router(consentimiento.router)
 
-_gate = [Depends(requiere_consentimiento)]
+_gate = [Depends(requiere_password_actualizada), Depends(requiere_consentimiento)]
 app.include_router(informes.router, dependencies=_gate)
 app.include_router(docentes.router, dependencies=_gate)
 app.include_router(usuarios.router, dependencies=_gate)

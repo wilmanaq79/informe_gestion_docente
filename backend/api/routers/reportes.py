@@ -47,8 +47,11 @@ def reporte_docente(
     anio, periodo_ids = _resolver_alcance(db, anio, semestre)
     etiqueta = describir_alcance(anio, semestre, corte)
 
+    programa_nombre = usuario.programa.nombre if usuario.programa else "Gestión Docente"
     buffer = io.BytesIO()
-    generar_reporte_docente(docente, buffer, etiqueta, periodo_ids=periodo_ids, corte_filtro=corte)
+    generar_reporte_docente(
+        docente, buffer, etiqueta, periodo_ids=periodo_ids, corte_filtro=corte, programa_nombre=programa_nombre
+    )
     buffer.seek(0)
 
     filename = f"Informe_{docente.nombre_completo.replace(' ', '_')}_{anio}" + (f"-{semestre}" if semestre else "") + ".pdf"
@@ -78,9 +81,11 @@ def reporte_consolidado(
     etiqueta = describir_alcance(anio, semestre, corte)
     resumen = resumen_dashboard_institucional(db, usuario.programa_id, anio, semestre, corte)
 
+    programa_nombre = usuario.programa.nombre if usuario.programa else "Gestión Docente"
     buffer = io.BytesIO()
     generar_reporte_consolidado(
-        docentes, buffer, etiqueta, periodo_ids=periodo_ids, corte_filtro=corte, resumen_dashboard=resumen
+        docentes, buffer, etiqueta, periodo_ids=periodo_ids, corte_filtro=corte, resumen_dashboard=resumen,
+        programa_nombre=programa_nombre,
     )
     buffer.seek(0)
 

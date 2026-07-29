@@ -1,7 +1,9 @@
 """Funciones de acceso a datos (capa de repositorio) sobre los modelos de
 db/models.py. Mantiene las consultas SQLAlchemy fuera de las vistas de
 Streamlit."""
-from datetime import datetime
+import hashlib
+import secrets
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
@@ -20,8 +22,11 @@ from db.models import (
     PeriodoAcademico,
     RepositorioAsignatura,
     Rol,
+    TokenRecuperacionPassword,
     Usuario,
 )
+
+TOKEN_RECUPERACION_MINUTOS = 30
 
 
 def corte_por_numero(session, numero: int) -> Corte | None:
@@ -231,27 +236,96 @@ def listar_roles(session) -> list[Rol]:
 
 
 def crear_usuario(
-    session, nombre_completo, cedula, email, username, password_hash, rol_id, programa_id: int | None = None
+    session, nombre_completo, cedula, email, username, password_hash, rol_id,
+    programa_id: int | None = None, telefono: str | None = None,
 ) -> Usuario:
     """programa_id: None solo tiene sentido para la cuenta bootstrap
     (db/seed.py) -- todo usuario operativo (docente/director/secretario/
     secretaria_programa) real debe crearse con el programa_id del
     administrador que lo da de alta (ver backend/api/routers/
-    usuarios.py), nunca elegible desde el formulario."""
+    usuarios.py), nunca elegible desde el formulario.
+
+    debe_cambiar_password siempre queda en True: toda cuenta nueva se crea
+    con una contrasena temporal que su dueno debe cambiar al entrar por
+    primera vez (aplica a los 4 roles por igual). Las cuentas que ya
+    existian antes de este campo no se ven afectadas -- no es retroactivo."""
     usuario = Usuario(
         nombre_completo=nombre_completo,
         cedula=cedula or None,
         email=email or None,
+        telefono=telefono or None,
         username=username.strip().lower(),
         password_hash=password_hash,
         rol_id=rol_id,
         programa_id=programa_id,
         activo=True,
+        debe_cambiar_password=True,
     )
     session.add(usuario)
     session.commit()
     session.refresh(usuario)
     return usuario
+
+
+def actualizar_usuario(session, usuario_id: int, **campos) -> Usuario | None:
+    """campos admitidos: nombre_completo, cedula, email, telefono (solo se
+    actualizan los que se pasen). No permite cambiar username/rol/password
+    -- eso queda fuera de este endpoint de edicion de perfil."""
+    usuario = session.get(Usuario, usuario_id)
+    if usuario is None:
+        return None
+    for campo, valor in campos.items():
+        setattr(usuario, campo, valor)
+    session.commit()
+    session.refresh(usuario)
+    return usuario
+
+
+# --- Recuperacion de contrasena -----------------------------------------------
+
+def crear_token_recuperacion(session, usuario_id: int) -> str:
+    """Genera un token de un solo uso para el flujo de 'olvide mi
+    contrasena'. Solo se persiste su hash (sha256) -- el token en texto
+    plano se retorna aqui unicamente para que el caller lo incluya en el
+    correo; nunca se vuelve a poder leer desde la base de datos."""
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    ahora = datetime.utcnow()
+    session.add(
+        TokenRecuperacionPassword(
+            usuario_id=usuario_id,
+            token_hash=token_hash,
+            creado_en=ahora,
+            expira_en=ahora + timedelta(minutes=TOKEN_RECUPERACION_MINUTOS),
+        )
+    )
+    session.commit()
+    return token
+
+
+def consumir_token_recuperacion(session, token: str) -> Usuario | None:
+    """Valida y consume (marca como usado) un token de recuperacion. Uso
+    unico: si es valido, tambien invalida cualquier otro token vigente del
+    mismo usuario, para que no queden dos enlaces activos a la vez."""
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    fila = session.scalar(
+        select(TokenRecuperacionPassword).where(TokenRecuperacionPassword.token_hash == token_hash)
+    )
+    ahora = datetime.utcnow()
+    if fila is None or fila.usado_en is not None or fila.expira_en <= ahora:
+        return None
+
+    otros_vigentes = session.scalars(
+        select(TokenRecuperacionPassword).where(
+            TokenRecuperacionPassword.usuario_id == fila.usuario_id,
+            TokenRecuperacionPassword.usado_en.is_(None),
+        )
+    ).all()
+    for otro in otros_vigentes:
+        otro.usado_en = ahora
+    session.commit()
+
+    return session.get(Usuario, fila.usuario_id)
 
 
 def registrar_aceptacion_tratamiento_datos(

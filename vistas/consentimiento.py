@@ -4,10 +4,10 @@ sistema (Ley 1581 de 2012)."""
 import streamlit as st
 
 from agente_notas.aviso_privacidad import (
-    TEXTO_POLITICA,
     TITULO_POLITICA,
     VERSION_POLITICA,
     acepto_politica_vigente,
+    texto_politica,
 )
 from db.models import Usuario
 from db.repository import registrar_aceptacion_tratamiento_datos
@@ -28,7 +28,8 @@ def render(session, usuario_id: int) -> bool:
     )
 
     with st.container(height=400, border=True):
-        st.markdown(TEXTO_POLITICA)
+        programa_nombre = usuario.programa.nombre if usuario.programa else "tu programa"
+        st.markdown(texto_politica(programa_nombre))
 
     acepto = st.checkbox("He leído y acepto el tratamiento de mis datos personales conforme a lo descrito arriba.")
 
@@ -37,7 +38,10 @@ def render(session, usuario_id: int) -> bool:
         registrar_aceptacion_tratamiento_datos(session, usuario_id, VERSION_POLITICA)
         st.rerun()
     if col2.button("Cerrar sesión", use_container_width=True, key="consentimiento_cerrar_sesion"):
-        for clave in ["usuario_id", "usuario_nombre", "usuario_rol", "usuario_username"]:
+        for clave in [
+            "usuario_id", "usuario_nombre", "usuario_rol", "usuario_username",
+            "usuario_programa_id", "usuario_programa_nombre", "usuario_debe_cambiar_password",
+        ]:
             st.session_state.pop(clave, None)
         st.rerun()
 

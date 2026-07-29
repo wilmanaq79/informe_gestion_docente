@@ -8,7 +8,7 @@ import RepositorioAsignaturas from "../components/RepositorioAsignaturas";
 import EstadoVacio from "../components/ui/EstadoVacio";
 import SeccionNav from "../components/ui/SeccionNav";
 import { useAuth } from "../context/AuthContext";
-import { DocenteDetalle, DocenteResumen, Periodo, UsuarioAdmin, UsuarioCreate } from "../types";
+import { DocenteDetalle, DocenteResumen, Periodo, UsuarioAdmin, UsuarioCreate, UsuarioUpdate } from "../types";
 
 const CORTE_NOMBRE: Record<number, string> = { 1: "Corte 1", 2: "Corte 2", 3: "Corte 3 / Final" };
 
@@ -456,18 +456,22 @@ export default function DireccionPage() {
   );
 }
 
-function AdministracionUsuarios({ onUsuarioCreado }: { onUsuarioCreado: () => void }) {
-  const [form, setForm] = useState<UsuarioCreate>({
-    nombre_completo: "",
-    cedula: "",
-    email: "",
-    username: "",
-    password: "",
-    rol: "docente",
-  });
+const FORM_USUARIO_VACIO: UsuarioCreate = {
+  nombre_completo: "",
+  cedula: "",
+  email: "",
+  telefono: "",
+  username: "",
+  password: "",
+  rol: "docente",
+};
+
+export function AdministracionUsuarios({ onUsuarioCreado }: { onUsuarioCreado: () => void }) {
+  const [form, setForm] = useState<UsuarioCreate>(FORM_USUARIO_VACIO);
   const [usuarios, setUsuarios] = useState<UsuarioAdmin[]>([]);
   const [mensaje, setMensaje] = useState<{ tipo: "exito" | "error"; texto: string } | null>(null);
-  const [creando, setCreando] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [editandoId, setEditandoId] = useState<number | null>(null);
 
   async function cargarUsuarios() {
     try {
@@ -482,20 +486,54 @@ function AdministracionUsuarios({ onUsuarioCreado }: { onUsuarioCreado: () => vo
     cargarUsuarios();
   }, []);
 
+  function editar(u: UsuarioAdmin) {
+    setEditandoId(u.id);
+    setForm({
+      nombre_completo: u.nombre_completo,
+      cedula: u.cedula ?? "",
+      email: u.email ?? "",
+      telefono: u.telefono ?? "",
+      username: u.username,
+      password: "",
+      rol: u.rol,
+    });
+    setMensaje(null);
+  }
+
+  function cancelarEdicion() {
+    setEditandoId(null);
+    setForm(FORM_USUARIO_VACIO);
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setCreando(true);
+    setGuardando(true);
     setMensaje(null);
     try {
-      await api.post("/usuarios", form);
-      setMensaje({ tipo: "exito", texto: `Usuario '${form.username}' creado con rol '${form.rol}'.` });
-      setForm({ nombre_completo: "", cedula: "", email: "", username: "", password: "", rol: "docente" });
+      if (editandoId != null) {
+        const payload: UsuarioUpdate = {
+          nombre_completo: form.nombre_completo,
+          cedula: form.cedula,
+          email: form.email,
+          telefono: form.telefono,
+        };
+        await api.put(`/usuarios/${editandoId}`, payload);
+        setMensaje({ tipo: "exito", texto: `Usuario '${form.username}' actualizado.` });
+        cancelarEdicion();
+      } else {
+        await api.post("/usuarios", form);
+        setMensaje({ tipo: "exito", texto: `Usuario '${form.username}' creado con rol '${form.rol}'.` });
+        setForm(FORM_USUARIO_VACIO);
+      }
       cargarUsuarios();
       onUsuarioCreado();
     } catch (err) {
-      setMensaje({ tipo: "error", texto: mensajeError(err, "No se pudo crear el usuario.") });
+      setMensaje({
+        tipo: "error",
+        texto: mensajeError(err, editandoId != null ? "No se pudo actualizar el usuario." : "No se pudo crear el usuario."),
+      });
     } finally {
-      setCreando(false);
+      setGuardando(false);
     }
   }
 
@@ -504,8 +542,8 @@ function AdministracionUsuarios({ onUsuarioCreado }: { onUsuarioCreado: () => vo
       <h2>👤 Administración de usuarios</h2>
       <p className="texto-ayuda">Crea aquí las cuentas de los 27 docentes, el Director y el Secretario Académico.</p>
 
-      <details open={usuarios.length === 0}>
-        <summary>➕ Crear nuevo usuario</summary>
+      <details open={editandoId != null || usuarios.length === 0}>
+        <summary>{editandoId != null ? "✏️ Editar usuario" : "➕ Crear nuevo usuario"}</summary>
         <form className="formulario-grid" onSubmit={handleSubmit}>
           <label>
             Nombre completo
@@ -516,39 +554,63 @@ function AdministracionUsuarios({ onUsuarioCreado }: { onUsuarioCreado: () => vo
             />
           </label>
           <label>
-            Cédula (opcional)
-            <input value={form.cedula} onChange={(e) => setForm({ ...form, cedula: e.target.value })} />
+            Cédula
+            <input value={form.cedula} onChange={(e) => setForm({ ...form, cedula: e.target.value })} required />
           </label>
           <label>
-            Correo (opcional)
-            <input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
-          </label>
-          <label>
-            Usuario (para iniciar sesión)
-            <input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} required />
-          </label>
-          <label>
-            Contraseña temporal
+            Correo institucional
             <input
-              type="password"
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
+              type="email"
+              value={form.email}
+              onChange={(e) => setForm({ ...form, email: e.target.value })}
               required
             />
           </label>
           <label>
-            Rol
-            <select value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })}>
-              <option value="docente">docente</option>
-              <option value="director">director</option>
-              <option value="secretario">secretario</option>
-              <option value="secretaria_programa">secretaria del programa</option>
-            </select>
+            Teléfono (opcional)
+            <input value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} />
           </label>
+          {editandoId == null && (
+            <>
+              <label>
+                Usuario (para iniciar sesión)
+                <input
+                  value={form.username}
+                  onChange={(e) => setForm({ ...form, username: e.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                Contraseña temporal
+                <input
+                  type="password"
+                  value={form.password}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
+                  required
+                />
+              </label>
+              <label>
+                Rol
+                <select value={form.rol} onChange={(e) => setForm({ ...form, rol: e.target.value })}>
+                  <option value="docente">docente</option>
+                  <option value="director">director</option>
+                  <option value="secretario">secretario</option>
+                  <option value="secretaria_programa">secretaria del programa</option>
+                </select>
+              </label>
+            </>
+          )}
           {mensaje && <p className={`mensaje mensaje--${mensaje.tipo === "exito" ? "exito" : "error"}`}>{mensaje.texto}</p>}
-          <button type="submit" className="btn btn--primario" disabled={creando}>
-            {creando ? "Creando…" : "Crear usuario"}
-          </button>
+          <div>
+            <button type="submit" className="btn btn--primario" disabled={guardando}>
+              {guardando ? "Guardando…" : editandoId != null ? "Guardar cambios" : "Crear usuario"}
+            </button>{" "}
+            {editandoId != null && (
+              <button type="button" className="btn btn--secondary" onClick={cancelarEdicion}>
+                Cancelar
+              </button>
+            )}
+          </div>
         </form>
       </details>
 
@@ -562,6 +624,7 @@ function AdministracionUsuarios({ onUsuarioCreado }: { onUsuarioCreado: () => vo
                 <th>Usuario</th>
                 <th>Rol</th>
                 <th>Activo</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
@@ -571,6 +634,11 @@ function AdministracionUsuarios({ onUsuarioCreado }: { onUsuarioCreado: () => vo
                   <td>{u.username}</td>
                   <td>{u.rol}</td>
                   <td>{u.activo ? "Sí" : "No"}</td>
+                  <td>
+                    <button className="btn btn--secondary" onClick={() => editar(u)}>
+                      ✏️ Editar
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

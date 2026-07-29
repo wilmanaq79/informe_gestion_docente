@@ -15,6 +15,7 @@ from db.auth import hash_password
 from db.database import get_session
 from db.repository import (
     activar_periodo,
+    actualizar_usuario,
     crear_o_obtener_periodo,
     crear_usuario,
     listar_docentes,
@@ -180,7 +181,8 @@ def render():
                     out_path = Path.cwd() / f"__informe_temp_docente_{docente_sel.id}.pdf"
                     try:
                         generar_reporte_docente(
-                            docente_sel, out_path, etiqueta_alcance, periodo_ids=periodo_ids, corte_filtro=corte_sel
+                            docente_sel, out_path, etiqueta_alcance, periodo_ids=periodo_ids, corte_filtro=corte_sel,
+                            programa_nombre=programa_nombre,
                         )
                         with open(out_path, "rb") as f:
                             st.download_button(
@@ -208,12 +210,14 @@ def render():
         with st.form("crear_usuario_form", clear_on_submit=True):
             nombre = st.text_input("Nombre completo")
             col1, col2 = st.columns(2)
-            cedula = col1.text_input("Cédula (opcional)")
-            email = col2.text_input("Correo (opcional)")
+            cedula = col1.text_input("Cédula")
+            email = col2.text_input("Correo institucional")
             col3, col4 = st.columns(2)
-            username = col3.text_input("Usuario (para iniciar sesión)")
-            password = col4.text_input("Contraseña temporal", type="password")
-            rol_sel = st.selectbox("Rol", ["docente", "director", "secretario", "secretaria_programa"])
+            telefono = col3.text_input("Teléfono (opcional)")
+            username = col4.text_input("Usuario (para iniciar sesión)")
+            col5, col6 = st.columns(2)
+            password = col5.text_input("Contraseña temporal", type="password")
+            rol_sel = col6.selectbox("Rol", ["docente", "director", "secretario", "secretaria_programa"])
             crear = st.form_submit_button("Crear usuario", use_container_width=True)
 
         if crear:
@@ -224,8 +228,13 @@ def render():
             # se haya alcanzado unicamente desde ese camino de navegacion.
             if st.session_state.get("usuario_rol") not in ("director", "secretario"):
                 st.error("No tienes permiso para crear usuarios.")
-            elif not (nombre and username and password):
-                st.error("Nombre, usuario y contraseña son obligatorios.")
+            elif st.session_state.get("usuario_programa_id") is None:
+                st.error(
+                    "Tu cuenta no pertenece a ningún programa académico y no puede crear usuarios. "
+                    "El alta del primer Director de un programa nuevo se hace mediante el script de onboarding."
+                )
+            elif not (nombre and cedula and email and username and password):
+                st.error("Nombre, cédula, correo institucional, usuario y contraseña son obligatorios.")
             else:
                 session = get_session()
                 try:
@@ -234,7 +243,7 @@ def render():
                     # quien lo crea -- nunca elegible desde el formulario.
                     crear_usuario(
                         session, nombre, cedula, email, username, hash_password(password), roles[rol_sel],
-                        programa_id=st.session_state.get("usuario_programa_id"),
+                        programa_id=st.session_state.get("usuario_programa_id"), telefono=telefono,
                     )
                     st.success(f"Usuario '{username}' creado con rol '{rol_sel}'.")
                 except Exception as exc:
@@ -264,6 +273,43 @@ def render():
             )
         finally:
             session.close()
+
+    if usuarios:
+        with st.expander("✏️ Editar datos de un usuario"):
+            opciones_usuario = {f"{u.nombre_completo} ({u.username})": u.id for u in usuarios}
+            usuario_txt = st.selectbox("Usuario", list(opciones_usuario.keys()), key="editar_usuario_sel")
+            usuario_id_editar = opciones_usuario[usuario_txt]
+            usuario_sel = next(u for u in usuarios if u.id == usuario_id_editar)
+
+            with st.form("editar_usuario_form"):
+                nuevo_nombre = st.text_input("Nombre completo", value=usuario_sel.nombre_completo)
+                col1, col2 = st.columns(2)
+                nueva_cedula = col1.text_input("Cédula", value=usuario_sel.cedula or "")
+                nuevo_email = col2.text_input("Correo institucional", value=usuario_sel.email or "")
+                nuevo_telefono = st.text_input("Teléfono (opcional)", value=usuario_sel.telefono or "")
+                guardar_edicion = st.form_submit_button("Guardar cambios", use_container_width=True)
+
+            if guardar_edicion:
+                # Misma barrera de defensa en profundidad que en la creacion.
+                if st.session_state.get("usuario_rol") not in ("director", "secretario"):
+                    st.error("No tienes permiso para editar usuarios.")
+                elif not (nuevo_nombre and nueva_cedula and nuevo_email):
+                    st.error("Nombre, cédula y correo institucional son obligatorios.")
+                else:
+                    session = get_session()
+                    try:
+                        actualizar_usuario(
+                            session, usuario_id_editar,
+                            nombre_completo=nuevo_nombre, cedula=nueva_cedula, email=nuevo_email,
+                            telefono=nuevo_telefono or None,
+                        )
+                        st.success("Usuario actualizado.")
+                        st.rerun()
+                    except Exception as exc:
+                        session.rollback()
+                        st.error(f"No se pudo actualizar el usuario (¿cédula repetida?): {exc}")
+                    finally:
+                        session.close()
 
     st.divider()
     repositorio_asignaturas.render(st.session_state["usuario_id"], st.session_state["usuario_rol"])

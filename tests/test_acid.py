@@ -21,7 +21,7 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 
 from db.database import SessionLocal, engine
-from db.models import AsignacionAcademica, InformeCorte, PeriodoAcademico, Programa, Usuario
+from db.models import AsignacionAcademica, InformeCorte, PeriodoAcademico, Programa, RepositorioAsignatura, Usuario
 from db.repository import (
     corte_por_numero,
     crear_usuario,
@@ -115,6 +115,35 @@ class TestConsistencia:
             db_session.execute(
                 text("UPDATE periodos_academicos SET activo = true WHERE id = :id"), {"id": p2.id}
             )
+            db_session.flush()
+        db_session.rollback()
+
+    def test_misma_asignatura_en_dos_programas_distintos_no_choca(self, db_session):
+        """uq_repositorio_programa_asignatura: dos programas académicos
+        distintos SÍ pueden tener cada uno una materia con el mismo
+        nombre (p.ej. "Cálculo I") -- antes de la migración multi-
+        programa, el unique era GLOBAL y esto habría chocado."""
+        programa_a = Programa(nombre=f"PYTEST Prog A {uuid.uuid4().hex[:6]}", codigo=f"pytest-a-{uuid.uuid4().hex[:8]}")
+        programa_b = Programa(nombre=f"PYTEST Prog B {uuid.uuid4().hex[:6]}", codigo=f"pytest-b-{uuid.uuid4().hex[:8]}")
+        db_session.add_all([programa_a, programa_b])
+        db_session.flush()
+
+        nombre_materia = f"Cálculo I {uuid.uuid4().hex[:6]}"
+        db_session.add(RepositorioAsignatura(asignatura=nombre_materia, programa_id=programa_a.id))
+        db_session.add(RepositorioAsignatura(asignatura=nombre_materia, programa_id=programa_b.id))
+        db_session.flush()  # no debe lanzar -- son programas distintos
+
+    def test_misma_asignatura_dos_veces_en_el_mismo_programa_falla(self, db_session):
+        programa = Programa(nombre=f"PYTEST Prog {uuid.uuid4().hex[:6]}", codigo=f"pytest-{uuid.uuid4().hex[:8]}")
+        db_session.add(programa)
+        db_session.flush()
+
+        nombre_materia = f"Ética Profesional {uuid.uuid4().hex[:6]}"
+        db_session.add(RepositorioAsignatura(asignatura=nombre_materia, programa_id=programa.id))
+        db_session.flush()
+
+        with pytest.raises(IntegrityError):
+            db_session.add(RepositorioAsignatura(asignatura=nombre_materia, programa_id=programa.id))
             db_session.flush()
         db_session.rollback()
 

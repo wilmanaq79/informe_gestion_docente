@@ -24,6 +24,7 @@ from db.repository import (
     corte_por_numero,
     eliminar_documento_entrega,
     emails_personal_revisor,
+    entrega_con_detalle,
     ids_personal_revisor,
     listar_entregas,
     listar_periodos,
@@ -278,7 +279,10 @@ def _render_docente(session, usuario_id, periodo, corte, corte_numero, materias_
                         f"⚠️ {nombre_docente} subió '{archivo.name}' ({tipo_label}) para el {corte.nombre} — "
                         f"el agente {accion} ({veredicto['detalle']}). Revísalo antes de aprobar la entrega."
                     )
-                    notificar_usuarios(session, ids_personal_revisor(session), mensaje, entrega_id=entrega_actual.id)
+                    notificar_usuarios(
+                        session, ids_personal_revisor(session, st.session_state.get("usuario_programa_id")),
+                        mensaje, entrega_id=entrega_actual.id,
+                    )
 
                 st.success("Documento subido correctamente.")
                 st.rerun()
@@ -295,7 +299,8 @@ def _render_revisor(session, periodo_id, corte):
     )
 
     entregas = listar_entregas(
-        session, periodo_id=periodo_id, corte_id=corte.id, estado=estado,
+        session, st.session_state.get("usuario_programa_id"),
+        periodo_id=periodo_id, corte_id=corte.id, estado=estado,
         documento_docente=busqueda_documento.strip() or None,
     )
     if not entregas:
@@ -379,6 +384,10 @@ def _aprobar(session, entrega_id, comentario):
     if st.session_state.get("usuario_rol") not in ROLES_REVISORES:
         st.error("No tienes permiso para aprobar entregas.")
         return
+    entrega_previa = entrega_con_detalle(session, entrega_id)
+    if entrega_previa is None or entrega_previa.programa_id != st.session_state.get("usuario_programa_id"):
+        st.error("No puedes acceder a datos de otro programa académico.")
+        return
     usuario_actual_id = st.session_state["usuario_id"]
     try:
         entrega = aprobar_entrega(session, entrega_id, usuario_actual_id, comentario or None)
@@ -386,7 +395,7 @@ def _aprobar(session, entrega_id, comentario):
         st.error(str(exc))
         return
 
-    destinatarios = emails_personal_revisor(session)
+    destinatarios = emails_personal_revisor(session, entrega.programa_id)
     revisor_nombre = st.session_state["usuario_nombre"]
     enviado, error = notificar_entrega_aprobada(
         entrega.docente.nombre_completo, entrega.docente.email, entrega.periodo.nombre, entrega.corte.nombre,
@@ -398,7 +407,10 @@ def _aprobar(session, entrega_id, comentario):
         f"La entrega de {entrega.docente.nombre_completo} ({entrega.periodo.nombre}, {entrega.corte.nombre}) "
         f"fue APROBADA por {revisor_nombre}."
     )
-    notificar_usuarios(session, ids_personal_revisor(session) + [entrega.docente_id], mensaje, entrega_id=entrega.id)
+    notificar_usuarios(
+        session, ids_personal_revisor(session, entrega.programa_id) + [entrega.docente_id],
+        mensaje, entrega_id=entrega.id,
+    )
 
     st.success("Entrega aprobada. Se notificó por correo al Director, al Secretario Académico, a la Secretaria del Programa y al docente.")
     st.rerun()
@@ -407,6 +419,10 @@ def _aprobar(session, entrega_id, comentario):
 def _rechazar(session, entrega_id, comentario):
     if st.session_state.get("usuario_rol") not in ROLES_REVISORES:
         st.error("No tienes permiso para rechazar entregas.")
+        return
+    entrega_previa = entrega_con_detalle(session, entrega_id)
+    if entrega_previa is None or entrega_previa.programa_id != st.session_state.get("usuario_programa_id"):
+        st.error("No puedes acceder a datos de otro programa académico.")
         return
     usuario_actual_id = st.session_state["usuario_id"]
     try:
@@ -419,7 +435,10 @@ def _rechazar(session, entrega_id, comentario):
         f"La entrega de {entrega.docente.nombre_completo} ({entrega.periodo.nombre}, {entrega.corte.nombre}) "
         f"fue RECHAZADA por {st.session_state['usuario_nombre']}: {comentario}"
     )
-    notificar_usuarios(session, ids_personal_revisor(session) + [entrega.docente_id], mensaje, entrega_id=entrega.id)
+    notificar_usuarios(
+        session, ids_personal_revisor(session, entrega.programa_id) + [entrega.docente_id],
+        mensaje, entrega_id=entrega.id,
+    )
 
     st.success("Entrega rechazada. El docente verá el motivo y podrá volver a cargar los documentos.")
     st.rerun()

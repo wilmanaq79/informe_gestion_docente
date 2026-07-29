@@ -5,6 +5,7 @@ export interface Usuario {
   rol: "docente" | "director" | "secretario" | "secretaria_programa";
   activo: boolean;
   acepto_tratamiento_datos: boolean;
+  debe_cambiar_password: boolean;
   programa_id: number | null;
   programa_nombre: string | null;
 }
@@ -123,11 +124,19 @@ export interface DocenteDetalle {
 
 export interface UsuarioCreate {
   nombre_completo: string;
-  cedula?: string;
-  email?: string;
+  cedula: string;
+  email: string;
+  telefono?: string;
   username: string;
   password: string;
   rol: string;
+}
+
+export interface UsuarioUpdate {
+  nombre_completo?: string;
+  cedula?: string;
+  email?: string;
+  telefono?: string;
 }
 
 export interface UsuarioAdmin {
@@ -135,6 +144,7 @@ export interface UsuarioAdmin {
   nombre_completo: string;
   cedula: string | null;
   email: string | null;
+  telefono: string | null;
   username: string;
   rol: string;
   activo: boolean;

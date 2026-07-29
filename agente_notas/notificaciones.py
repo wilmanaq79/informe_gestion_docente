@@ -80,3 +80,27 @@ def notificar_entrega_aprobada(
     except Exception as exc:
         logger.warning("No se pudo enviar la notificación de entrega aprobada: %s", exc)
         return False, str(exc)
+
+
+def notificar_recuperacion_password(
+    destinatario_email: str | None, destinatario_nombre: str, enlace: str
+) -> tuple[bool, str | None]:
+    """Envía el enlace para restablecer la contraseña. Devuelve (enviado,
+    error) -- nunca lanza excepción, igual que notificar_entrega_aprobada."""
+    asunto = "Recuperación de contraseña — Sistema de Gestión Docente"
+    cuerpo = (
+        f"Hola {destinatario_nombre},\n\n"
+        "Recibimos una solicitud para restablecer tu contraseña en el Sistema de Gestión y "
+        "Autoevaluación Docente. Usa el siguiente enlace para elegir una nueva:\n\n"
+        f"{enlace}\n\n"
+        "Este enlace expira en 30 minutos y solo puede usarse una vez. Si tú no solicitaste este "
+        "cambio, puedes ignorar este correo — tu contraseña actual sigue siendo válida.\n\n"
+        "Este es un mensaje automático del Sistema de Gestión y Autoevaluación Docente — "
+        "Universidad del Pacífico. Por favor no responda a este correo."
+    )
+    try:
+        enviar_correo([destinatario_email] if destinatario_email else [], asunto, cuerpo)
+        return True, None
+    except Exception as exc:
+        logger.warning("No se pudo enviar el correo de recuperación de contraseña: %s", exc)
+        return False, str(exc)

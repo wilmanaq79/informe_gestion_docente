@@ -32,22 +32,69 @@ function badgeFirma(d: DocumentoEntrega) {
   if (d.firma_detectada === true) {
     return (
       <span title={d.firma_detalle ?? ""} style={{ color: "var(--verde)", whiteSpace: "nowrap" }}>
-        ✅ Firma detectada
+        ✅ Firmado
       </span>
     );
   }
   if (d.firma_detectada === false) {
     return (
       <span title={d.firma_detalle ?? ""} style={{ color: "var(--rojo)", whiteSpace: "nowrap" }}>
-        ❌ Sin firma
+        ❌ No firmado
       </span>
     );
   }
   return (
     <span title={d.firma_detalle ?? ""} style={{ color: "var(--naranja)", whiteSpace: "nowrap" }}>
-      ⚠️ Revisar manualmente
+      ⚠️ Revisión manual
     </span>
   );
+}
+
+function recomendacionFirma(d: DocumentoEntrega) {
+  if (d.firma_detectada === true) {
+    return <span className="texto-ayuda">—</span>;
+  }
+  return (
+    <span style={{ color: "var(--naranja)" }}>
+      Se recomienda revisar este documento manualmente antes de aprobar.
+    </span>
+  );
+}
+
+export function documentoNecesitaRevision(d: DocumentoEntrega): boolean {
+  return d.firma_detectada !== true;
+}
+
+function celdaRevision(
+  d: DocumentoEntrega,
+  onConfirmar: (d: DocumentoEntrega) => void,
+  confirmando: boolean
+) {
+  if (!documentoNecesitaRevision(d)) {
+    return <span className="texto-ayuda">—</span>;
+  }
+  if (d.revisado_manualmente) {
+    return (
+      <span style={{ color: "var(--verde)", whiteSpace: "nowrap" }}>
+        ✔️ Revisado por {d.revisado_por_nombre}
+      </span>
+    );
+  }
+  const abierto = Boolean(d.visto_en);
+  return (
+    <button
+      className="btn btn--secondary btn--chico"
+      disabled={!abierto || confirmando}
+      title={abierto ? "Confirma que ya revisaste este documento" : "Primero abre o descarga el archivo con 👁️ Ver o ⬇️ Descargar"}
+      onClick={() => onConfirmar(d)}
+    >
+      {confirmando ? "Confirmando…" : abierto ? "✔️ Confirmar revisión" : "🔒 Confirmar revisión"}
+    </button>
+  );
+}
+
+export function pendientesRevisionManual(entrega: Entrega): DocumentoEntrega[] {
+  return entrega.documentos.filter((d) => documentoNecesitaRevision(d) && !d.revisado_manualmente);
 }
 
 function bannerFirmas(entrega: Entrega) {
@@ -92,6 +139,7 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
 
   const [comentarios, setComentarios] = useState<Record<number, string>>({});
   const [procesandoId, setProcesandoId] = useState<number | null>(null);
+  const [confirmandoDocId, setConfirmandoDocId] = useState<number | null>(null);
 
   useEffect(() => {
     api
@@ -176,6 +224,7 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
       link.download = doc.nombre_archivo;
       link.click();
       window.URL.revokeObjectURL(url);
+      if (!esDocente) await cargarEntregas(); // refresca visto_en para habilitar "Confirmar revisión"
     } catch (err) {
       setError(mensajeError(err, "No se pudo descargar el documento."));
     }
@@ -191,8 +240,22 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
       }
       // El navegador necesita la URL viva mientras la pestaña la carga/renderiza.
       setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+      if (!esDocente) await cargarEntregas(); // refresca visto_en para habilitar "Confirmar revisión"
     } catch (err) {
       setError(mensajeError(err, "No se pudo previsualizar el documento."));
+    }
+  }
+
+  async function confirmarRevision(doc: DocumentoEntrega) {
+    setConfirmandoDocId(doc.id);
+    setError(null);
+    try {
+      await api.post(`/entregas/documentos/${doc.id}/confirmar-revision`);
+      await cargarEntregas();
+    } catch (err) {
+      setError(mensajeError(err, "No se pudo confirmar la revisión."));
+    } finally {
+      setConfirmandoDocId(null);
     }
   }
 
@@ -242,7 +305,8 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
               <th>Tipo</th>
               <th>Materia</th>
               <th>Archivo</th>
-              <th>Firma (agente)</th>
+              <th>Firma</th>
+              <th>{esDocente ? "Recomendación" : "Revisión"}</th>
               <th>Tamaño</th>
               <th>Subido</th>
               <th></th>
@@ -258,6 +322,7 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
                 <td>{d.materia ?? "—"}</td>
                 <td>{d.nombre_archivo}</td>
                 <td>{badgeFirma(d)}</td>
+                <td>{esDocente ? recomendacionFirma(d) : celdaRevision(d, confirmarRevision, confirmandoDocId === d.id)}</td>
                 <td>{formatearTamano(d.tamano_bytes)}</td>
                 <td>{formatearFecha(d.subido_en)}</td>
                 <td>
@@ -288,7 +353,7 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
         Listas de asistencia, notas firmadas, informe de gestión docente y demás soportes de la entrega del
         corte.
         {!esDocente &&
-          " Revisa cada archivo y confirma que el docente cumplió con la entrega y que los documentos están firmados antes de aprobar."}
+          " Revisa cada archivo y confirma que el docente cumplió con la entrega. Los documentos con Firma = Revisión manual o No firmado exigen que abras o descargues el archivo y confirmes la revisión antes de poder aprobar."}
       </p>
 
       {error && <p className="mensaje mensaje--error">{error}</p>}
@@ -457,6 +522,17 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
                   </p>
                 )}
 
+                {(() => {
+                  const pendientes = pendientesRevisionManual(entrega);
+                  if (pendientes.length === 0) return null;
+                  return (
+                    <p className="mensaje mensaje--warning">
+                      🔒 Para aprobar, primero abre (👁️ Ver o ⬇️ Descargar) y confirma la revisión de:{" "}
+                      {pendientes.map((d) => d.nombre_archivo).join(", ")}.
+                    </p>
+                  );
+                })()}
+
                 <label>
                   Comentario (obligatorio para rechazar, opcional para aprobar)
                   <textarea
@@ -467,7 +543,11 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
                 </label>
                 <button
                   className="btn btn--primario"
-                  disabled={procesandoId === entrega.id || entrega.documentos.length === 0}
+                  disabled={
+                    procesandoId === entrega.id ||
+                    entrega.documentos.length === 0 ||
+                    pendientesRevisionManual(entrega).length > 0
+                  }
                   onClick={() => aprobar(entrega.id)}
                 >
                   {procesandoId === entrega.id ? "Procesando…" : "✅ Aprobar entrega"}

@@ -26,6 +26,7 @@ from backend.api.routers import (
     usuarios,
 )
 from backend.core.config import settings
+from backend.core.limite_tamano import limitar_tamano_request
 
 app = FastAPI(
     title="API Gestión Docente — Ing. de Sistemas UNPA",
@@ -43,6 +44,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.middleware("http")(limitar_tamano_request)
 
 # auth y consentimiento quedan SIN el gate de consentimiento: deben
 # seguir funcionando antes de que el usuario acepte (login, /auth/me,

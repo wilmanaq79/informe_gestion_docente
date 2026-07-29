@@ -215,7 +215,14 @@ def render():
             crear = st.form_submit_button("Crear usuario", use_container_width=True)
 
         if crear:
-            if not (nombre and username and password):
+            # Segunda barrera de defensa en profundidad: igual que el
+            # backend FastAPI exige requiere_roles("director","secretario")
+            # en POST /usuarios, esta accion sensible vuelve a comprobar el
+            # rol aqui mismo, sin depender solo de que direccion.render()
+            # se haya alcanzado unicamente desde ese camino de navegacion.
+            if st.session_state.get("usuario_rol") not in ("director", "secretario"):
+                st.error("No tienes permiso para crear usuarios.")
+            elif not (nombre and username and password):
                 st.error("Nombre, usuario y contraseña son obligatorios.")
             else:
                 session = get_session()

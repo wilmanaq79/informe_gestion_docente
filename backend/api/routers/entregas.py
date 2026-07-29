@@ -6,14 +6,19 @@ Académico o Secretaria del Programa -- puede revisar, aprobar o
 rechazar una entrega. Al aprobarla se notifica por correo a los tres
 roles y al docente."""
 import io
-import mimetypes
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from agente_notas.agente_firmas import analizar_documento, resumen_entrega
-from agente_notas.almacenamiento import guardar_archivo_entrega, ruta_absoluta_segura
+from agente_notas.almacenamiento import (
+    ArchivoInvalido,
+    guardar_archivo_entrega,
+    nombre_seguro_para_header,
+    ruta_absoluta_segura,
+    tipo_y_disposicion,
+)
 from agente_notas.notificaciones import notificar_entrega_aprobada
 from backend.api.deps import get_db, requiere_roles
 from backend.schemas.entrega import AprobarEntregaIn, EntregaOut, RechazarEntregaIn
@@ -21,6 +26,7 @@ from db.models import TIPOS_DOCUMENTO_ENTREGA, Entrega, Usuario
 from db.repository import (
     agregar_documento_entrega,
     aprobar_entrega,
+    confirmar_revision_documento,
     corte_por_numero,
     documento_entrega_por_id,
     eliminar_documento_entrega,
@@ -28,6 +34,7 @@ from db.repository import (
     entrega_con_detalle,
     ids_personal_revisor,
     listar_entregas,
+    marcar_documento_visto,
     marcar_notificacion_entrega,
     notificar_usuarios,
     obtener_o_crear_entrega,
@@ -72,6 +79,10 @@ def _out(e: Entrega) -> EntregaOut:
                 "firma_detectada": d.firma_detectada,
                 "firma_confianza": d.firma_confianza,
                 "firma_detalle": d.firma_detalle,
+                "visto_en": d.visto_en,
+                "revisado_manualmente": d.revisado_manualmente,
+                "revisado_por_nombre": d.revisado_por.nombre_completo if d.revisado_por else None,
+                "revisado_en": d.revisado_en,
             }
             for d in e.documentos
         ],
@@ -150,9 +161,12 @@ def subir_documento(
     nombre_archivo = archivo.filename or "archivo"
     veredicto = analizar_documento(nombre_archivo, contenido, usuario.nombre_completo)
 
-    ruta_relativa, tamano = guardar_archivo_entrega(
-        periodo_nombre, usuario.id, corte_numero, tipo_documento, nombre_archivo, contenido
-    )
+    try:
+        ruta_relativa, tamano = guardar_archivo_entrega(
+            periodo_nombre, usuario.id, corte_numero, tipo_documento, nombre_archivo, contenido
+        )
+    except ArchivoInvalido as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     agregar_documento_entrega(
         db,
         entrega.id,
@@ -207,20 +221,44 @@ def descargar_documento(
     entrega = entrega_con_detalle(db, documento.entrega_id)
     _verificar_acceso_entrega(entrega, usuario)
 
+    if usuario.rol.nombre in ROLES_REVISORES:
+        marcar_documento_visto(db, documento_id)
+
     ruta = ruta_absoluta_segura(documento.ruta_archivo)
     if ruta is None:
         raise HTTPException(status_code=404, detail="El archivo ya no existe en el servidor.")
 
-    # El tipo real (pdf/imagen) permite que el navegador lo muestre inline
-    # (previsualización, botón "👁️ Ver") en vez de forzar la descarga;
-    # xlsx u otros tipos sin visor nativo simplemente se descargan.
-    media_type, _ = mimetypes.guess_type(documento.nombre_archivo)
+    # Solo pdf/jpg/jpeg/png se muestran inline (botón "👁️ Ver"); cualquier
+    # otra extensión se fuerza a descarga binaria -- nunca se confía en
+    # mimetypes.guess_type() sobre un nombre que escribió el usuario.
+    media_type, disposicion = tipo_y_disposicion(documento.nombre_archivo)
+    nombre_header = nombre_seguro_para_header(documento.nombre_archivo)
     buffer = io.BytesIO(ruta.read_bytes())
     return StreamingResponse(
         buffer,
-        media_type=media_type or "application/octet-stream",
-        headers={"Content-Disposition": f'inline; filename="{documento.nombre_archivo}"'},
+        media_type=media_type,
+        headers={"Content-Disposition": f'{disposicion}; filename="{nombre_header}"'},
     )
+
+
+@router.post("/documentos/{documento_id}/confirmar-revision", response_model=EntregaOut)
+def confirmar_revision(
+    documento_id: int,
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_roles(*ROLES_REVISORES)),
+):
+    documento = documento_entrega_por_id(db, documento_id)
+    if documento is None:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+    entrega = entrega_con_detalle(db, documento.entrega_id)
+    _verificar_acceso_entrega(entrega, usuario)
+
+    try:
+        confirmar_revision_documento(db, documento_id, usuario.id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return _out(entrega_con_detalle(db, documento.entrega_id))
 
 
 @router.post("/{entrega_id}/aprobar", response_model=EntregaOut)

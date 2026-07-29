@@ -3,6 +3,7 @@ gestion docente y ver el dashboard de rendimiento. Ademas de escribir el
 Excel, cada procesamiento se guarda en la base de datos (informes_corte +
 notas_estudiantes) para que el Director y el Secretario Academico puedan
 consultarlo despues."""
+import uuid
 from pathlib import Path
 
 import pandas as pd
@@ -367,24 +368,31 @@ def render(usuario_id: int):
             st.error(f"Hay más de un PDF apuntando a la misma materia: {', '.join(duplicadas)}. Corrige el mapeo arriba.")
             st.stop()
 
-        out_path = Path.cwd() / "__salida_temp_informe_gestion_docente.xlsx"
-        try:
-            excel_file.seek(0)
-            wb = abrir_plantilla(excel_file, str(out_path))
-        except Exception as exc:
-            st.error(f"No se pudo abrir la plantilla: {exc}")
-            st.stop()
-
         resultados = []
         error_fatal = False
         db_session = get_session()
         try:
+            # Se valida el periodo ANTES de tocar el disco -- si no hay
+            # periodo activo, st.stop() no debe dejar huerfano ningun
+            # archivo temporal.
             periodo = periodo_activo(db_session)
             if periodo is None:
                 st.error(
                     "No hay ningún periodo académico activo. El Director o el Secretario Académico debe "
                     "activarlo primero (sección 'Año · Semestre · Corte')."
                 )
+                st.stop()
+
+            # Nombre unico por invocacion (usuario + uuid): si dos
+            # docentes generan su informe al mismo tiempo, cada uno
+            # escribe su propio archivo -- nunca comparten ruta ni
+            # pueden pisarse o filtrarse datos entre si.
+            out_path = Path.cwd() / f"__salida_temp_informe_gestion_docente_{usuario_id}_{uuid.uuid4().hex}.xlsx"
+            try:
+                excel_file.seek(0)
+                wb = abrir_plantilla(excel_file, str(out_path))
+            except Exception as exc:
+                st.error(f"No se pudo abrir la plantilla: {exc}")
                 st.stop()
 
             for r in subject_rows:
@@ -412,7 +420,8 @@ def render(usuario_id: int):
 
                     stats = estadisticas_materia(r["materia"], r["grupo"], r["estudiantes"], corte)
                     asignacion = obtener_o_crear_asignacion(
-                        db_session, usuario_id, periodo.id, r["materia"], "Ingeniería de Sistemas", r["grupo"]
+                        db_session, usuario_id, periodo.id, r["materia"], "Ingeniería de Sistemas", r["grupo"],
+                        commit=False,
                     )
                     guardar_informe_corte(
                         db_session,
@@ -423,6 +432,7 @@ def render(usuario_id: int):
                         stats.mediana,
                         stats.desviacion,
                         _filas_notas_para_bd(r["estudiantes"], corte),
+                        commit=False,
                     )
                 except Exception as exc:
                     st.error(f"Error procesando '{r['materia']}' ({r['pdf_name']}): {exc}")
@@ -430,6 +440,14 @@ def render(usuario_id: int):
                     break
 
                 resultados.append((r["materia"], r["grupo"], resumen, aviso_asistencia))
+
+            # Ninguna materia de este lote se confirma si alguna fallo a
+            # mitad de camino -- todas o ninguna (ver commit=False arriba).
+            # Recien si se recorrieron todas sin error se confirma junto.
+            if error_fatal:
+                db_session.rollback()
+            else:
+                db_session.commit()
         finally:
             db_session.close()
 

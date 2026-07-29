@@ -14,6 +14,10 @@ class DocumentoEntregaOut(BaseModel):
     firma_detectada: bool | None
     firma_confianza: str | None
     firma_detalle: str | None
+    visto_en: datetime | None
+    revisado_manualmente: bool
+    revisado_por_nombre: str | None
+    revisado_en: datetime | None
 
 
 class EntregaOut(BaseModel):

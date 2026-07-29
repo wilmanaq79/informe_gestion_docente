@@ -20,17 +20,21 @@ from db.repository import (
     agregar_documento_entrega,
     aprobar_entrega,
     buscar_entrega,
+    confirmar_revision_documento,
     corte_por_numero,
     eliminar_documento_entrega,
     emails_personal_revisor,
     ids_personal_revisor,
     listar_entregas,
     listar_periodos,
+    marcar_documento_visto,
     marcar_notificacion_entrega,
     notificar_usuarios,
     obtener_o_crear_entrega,
     rechazar_entrega,
 )
+
+ROLES_REVISORES = ("director", "secretario", "secretaria_programa")
 
 CORTE_NOMBRE = {1: "Corte 1", 2: "Corte 2", 3: "Corte 3 / Final"}
 ESTADO_LABEL = {
@@ -50,28 +54,51 @@ def _formatear_tamano(bytes_: int) -> str:
 
 def _etiqueta_firma(d) -> str:
     if d.firma_detectada is True:
-        return "✅ Firma detectada"
+        return "✅ Firmado"
     if d.firma_detectada is False:
-        return "❌ Sin firma"
-    return "⚠️ Revisar manualmente"
+        return "❌ No firmado"
+    return "⚠️ Revisión manual"
 
 
-def _tabla_documentos(entrega) -> pd.DataFrame:
+def _recomendacion_firma(d) -> str:
+    if d.firma_detectada is True:
+        return "—"
+    return "Se recomienda revisar este documento manualmente antes de aprobar."
+
+
+def _necesita_revision_manual(d) -> bool:
+    return d.firma_detectada is not True
+
+
+def _etiqueta_revision(d) -> str:
+    if not _necesita_revision_manual(d):
+        return "—"
+    if d.revisado_manualmente:
+        nombre = d.revisado_por.nombre_completo if d.revisado_por else "revisor"
+        return f"✔️ Revisado por {nombre}"
+    if d.visto_en is not None:
+        return "🔓 Abierto — falta confirmar"
+    return "🔒 Sin abrir"
+
+
+def _tabla_documentos(entrega, incluir_revision: bool = False) -> pd.DataFrame:
     filas = []
     for d in entrega.documentos:
         tipo = TIPOS_DOCUMENTO_ENTREGA.get(d.tipo_documento, d.tipo_documento)
         if d.tipo_documento == "otro" and d.descripcion_otro:
             tipo = f"{tipo} ({d.descripcion_otro})"
-        filas.append(
-            {
-                "Tipo": tipo,
-                "Materia": d.materia or "—",
-                "Archivo": d.nombre_archivo,
-                "Firma (agente)": _etiqueta_firma(d),
-                "Tamaño": _formatear_tamano(d.tamano_bytes),
-                "Subido": d.subido_en.strftime("%d/%m/%Y %H:%M"),
-            }
-        )
+        fila = {
+            "Tipo": tipo,
+            "Materia": d.materia or "—",
+            "Archivo": d.nombre_archivo,
+            "Firma": _etiqueta_firma(d),
+            "Recomendación": _recomendacion_firma(d),
+            "Tamaño": _formatear_tamano(d.tamano_bytes),
+            "Subido": d.subido_en.strftime("%d/%m/%Y %H:%M"),
+        }
+        if incluir_revision:
+            fila["Revisión"] = _etiqueta_revision(d)
+        filas.append(fila)
     return pd.DataFrame(filas)
 
 
@@ -155,8 +182,9 @@ def render(usuario_id: int, rol: str, materias_disponibles: list[str] | None = N
     st.caption(
         "Listas de asistencia, notas firmadas, informe de gestión docente y demás soportes de la entrega "
         "del corte."
-        + ("" if es_docente else " Revisa cada archivo y confirma que el docente cumplió con la entrega y "
-           "que los documentos están firmados antes de aprobar.")
+        + ("" if es_docente else " Revisa cada archivo y confirma que el docente cumplió con la entrega. Los "
+           "documentos con Firma = Revisión manual o No firmado exigen abrir el archivo y confirmar la "
+           "revisión antes de poder aprobar.")
     )
 
     session = get_session()
@@ -281,13 +309,40 @@ def _render_revisor(session, periodo_id, corte):
                 st.write("Todavía no ha subido ningún documento.")
             else:
                 _banner_firmas(entrega)
-                st.dataframe(_tabla_documentos(entrega), use_container_width=True, hide_index=True)
+                st.dataframe(_tabla_documentos(entrega, incluir_revision=True), use_container_width=True, hide_index=True)
                 with st.expander("👁️ Ver un documento", expanded=False):
                     opciones_ver = {f"{d.tipo_documento} — {d.nombre_archivo}": d for d in entrega.documentos}
                     elegido_ver = st.selectbox(
                         "Documento", list(opciones_ver.keys()), key=f"entregas_ver_doc_{entrega.id}"
                     )
-                    _previsualizar_documento(opciones_ver[elegido_ver])
+                    doc_ver = opciones_ver[elegido_ver]
+                    if st.button("👁️ Abrir / ver este documento", key=f"entregas_abrir_{entrega.id}_{doc_ver.id}"):
+                        marcar_documento_visto(session, doc_ver.id)
+                        st.session_state[f"entregas_previa_mostrada_{doc_ver.id}"] = True
+                        st.rerun()
+                    if st.session_state.get(f"entregas_previa_mostrada_{doc_ver.id}"):
+                        _previsualizar_documento(doc_ver)
+
+                pendientes_revision = [d for d in entrega.documentos if _necesita_revision_manual(d) and not d.revisado_manualmente]
+                if pendientes_revision:
+                    st.markdown("**Confirma la revisión manual antes de aprobar (Firma = Revisión manual o No firmado):**")
+                    for d in pendientes_revision:
+                        abierto = d.visto_en is not None
+                        col_doc, col_btn = st.columns([3, 1])
+                        col_doc.write(f"{'👁️' if abierto else '🔒'} {d.nombre_archivo}")
+                        if col_btn.button(
+                            "✔️ Confirmar revisión",
+                            key=f"entregas_confirmar_{d.id}",
+                            disabled=not abierto,
+                            use_container_width=True,
+                            help=None if abierto else "Primero ábrelo con '👁️ Abrir / ver este documento'.",
+                        ):
+                            try:
+                                confirmar_revision_documento(session, d.id, st.session_state["usuario_id"])
+                                st.success(f"Revisión confirmada para {d.nombre_archivo}.")
+                                st.rerun()
+                            except ValueError as exc:
+                                st.error(str(exc))
 
             if entrega.comentario_revision:
                 aviso = st.error if entrega.estado == "rechazado" else st.info
@@ -295,17 +350,35 @@ def _render_revisor(session, periodo_id, corte):
             if entrega.notificacion_error:
                 st.warning(f"No se pudo enviar el correo de notificación: {entrega.notificacion_error}")
 
+            pendientes_revision = [d for d in entrega.documentos if _necesita_revision_manual(d) and not d.revisado_manualmente]
+            if pendientes_revision:
+                nombres = ", ".join(d.nombre_archivo for d in pendientes_revision)
+                st.warning(f"🔒 Para aprobar, abre y confirma la revisión manual de: {nombres}.")
+
             comentario = st.text_area(
                 "Comentario (obligatorio para rechazar, opcional para aprobar)", key=f"entregas_comentario_{entrega.id}"
             )
             col_aprobar, col_rechazar = st.columns(2)
-            if col_aprobar.button("✅ Aprobar entrega", key=f"entregas_aprobar_{entrega.id}", disabled=not entrega.documentos, use_container_width=True):
+            if col_aprobar.button(
+                "✅ Aprobar entrega",
+                key=f"entregas_aprobar_{entrega.id}",
+                disabled=not entrega.documentos or bool(pendientes_revision),
+                use_container_width=True,
+            ):
                 _aprobar(session, entrega.id, comentario)
             if col_rechazar.button("❌ Rechazar", key=f"entregas_rechazar_{entrega.id}", use_container_width=True):
                 _rechazar(session, entrega.id, comentario)
 
 
 def _aprobar(session, entrega_id, comentario):
+    # Segunda barrera de defensa en profundidad: no depender solo de que
+    # app.py haya enrutado a esta pantalla para un rol revisor -- si esta
+    # funcion llegara a invocarse desde cualquier otro punto, el chequeo
+    # de rol sigue aplicando aqui mismo (igual que requiere_roles() en el
+    # backend FastAPI para el endpoint equivalente).
+    if st.session_state.get("usuario_rol") not in ROLES_REVISORES:
+        st.error("No tienes permiso para aprobar entregas.")
+        return
     usuario_actual_id = st.session_state["usuario_id"]
     try:
         entrega = aprobar_entrega(session, entrega_id, usuario_actual_id, comentario or None)
@@ -332,6 +405,9 @@ def _aprobar(session, entrega_id, comentario):
 
 
 def _rechazar(session, entrega_id, comentario):
+    if st.session_state.get("usuario_rol") not in ROLES_REVISORES:
+        st.error("No tienes permiso para rechazar entregas.")
+        return
     usuario_actual_id = st.session_state["usuario_id"]
     try:
         entrega = rechazar_entrega(session, entrega_id, usuario_actual_id, comentario)

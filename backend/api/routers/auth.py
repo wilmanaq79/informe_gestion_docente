@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from agente_notas.aviso_privacidad import acepto_politica_vigente
 from backend.api.deps import get_current_user, get_db
+from backend.core.rate_limit import bloqueado, limpiar, registrar_intento_fallido
 from backend.core.security import crear_access_token
 from backend.schemas.auth import LoginRequest, TokenResponse, UsuarioOut
 from db.auth import autenticar
@@ -24,10 +25,19 @@ def _usuario_out(usuario: Usuario) -> UsuarioOut:
 
 @router.post("/login", response_model=TokenResponse)
 def login(datos: LoginRequest, db: Session = Depends(get_db)):
+    clave_intentos = datos.username.strip().lower()
+    if bloqueado(clave_intentos):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Demasiados intentos fallidos con este usuario. Intenta de nuevo en unos minutos.",
+        )
+
     usuario = autenticar(db, datos.username, datos.password)
     if usuario is None:
+        registrar_intento_fallido(clave_intentos)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuario o contraseña incorrectos")
 
+    limpiar(clave_intentos)
     token = crear_access_token(usuario.id, usuario.username, usuario.rol.nombre)
     return TokenResponse(access_token=token, usuario=_usuario_out(usuario))
 

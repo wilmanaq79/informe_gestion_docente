@@ -108,11 +108,7 @@ function bannerFirmas(entrega: Entrega) {
   );
 }
 
-interface Props {
-  materiasDisponibles?: string[];
-}
-
-export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) {
+export default function EntregasDocumentos() {
   const { usuario } = useAuth();
   const esDocente = usuario?.rol === "docente";
 
@@ -123,6 +119,7 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
   const [estadoFiltro, setEstadoFiltro] = useState("");
   const [docenteIdFiltro, setDocenteIdFiltro] = useState("");
   const [docentes, setDocentes] = useState<UsuarioAdmin[]>([]);
+  const [materiasDisponibles, setMateriasDisponibles] = useState<string[]>([]);
   const [tipos, setTipos] = useState<Record<string, string>>({});
   const [entregas, setEntregas] = useState<Entrega[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -164,6 +161,15 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
       api
         .get<UsuarioAdmin[]>("/usuarios")
         .then(({ data }) => setDocentes(data.filter((u) => u.rol === "docente")))
+        .catch(() => {});
+    } else {
+      // Materias ya registradas del docente en el periodo activo (BD) --
+      // no depende de haber pasado antes por "Cargar notas" en esta misma
+      // sesion de navegador, a diferencia de una lista derivada solo del
+      // Excel recien subido.
+      api
+        .get<string[]>("/entregas/materias-docente")
+        .then(({ data }) => setMateriasDisponibles(data))
         .catch(() => {});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -1,10 +1,9 @@
-"""Vista del Director del Programa y del Secretario Academico: resumen de
-los docentes, detalle por materia/corte, generacion del informe PDF por
-docente, y administracion de usuarios (altas de las cuentas de los 27
-docentes, el director y el secretario).
-
-Filtrable por Año, Semestre (cada Año tiene 2 semestres) y Corte (cada
-semestre tiene 3 cortes) -- igual que en el frontend React."""
+"""Vista del Director del Programa y del Secretario Academico: cada
+'seccion' es ahora una pagina propia de st.navigation (ver app.py) --
+render_periodo (activar/crear el periodo actual), render_informes
+(resumen de docentes, detalle por materia/corte, informe PDF, filtrable
+por Año/Semestre/Corte) y render_administracion_usuarios (altas de las
+cuentas de los 27 docentes, el director y el secretario)."""
 from pathlib import Path
 
 import pandas as pd
@@ -24,7 +23,6 @@ from db.repository import (
     listar_usuarios,
     resolver_periodo_ids,
 )
-from vistas import calendario, entregas, repositorio_asignaturas
 
 
 def _seccion_periodo_actual(session):
@@ -86,7 +84,21 @@ def _selector_alcance(session):
     return anio_sel, semestre_sel, corte_sel, periodo_ids, etiqueta
 
 
-def render():
+def render_periodo():
+    """Página 'Periodo actual': activar/crear el periodo académico donde
+    caen las notas que los docentes cargan hoy."""
+    session = get_session()
+    try:
+        _seccion_periodo_actual(session)
+    finally:
+        session.close()
+
+
+def render_informes():
+    """Página 'Informes y seguimiento docente': alcance Año/Semestre/
+    Corte, dashboard, tabla de docentes, detalle e informe PDF por
+    docente. El alcance elegido aquí alimenta tanto el dashboard como la
+    tabla/detalle -- por eso viven juntos en una sola página."""
     programa_id = st.session_state.get("usuario_programa_id")
     programa_nombre = st.session_state.get("usuario_programa_nombre") or "tu programa"
     st.caption(
@@ -101,11 +113,6 @@ def render():
             "Elige el alcance de los informes. Cada Año tiene 2 semestres y cada semestre tiene 3 cortes."
         )
         anio_sel, semestre_sel, corte_sel, periodo_ids, etiqueta_alcance = _selector_alcance(session)
-
-        _seccion_periodo_actual(session)
-        st.divider()
-        calendario.render(puede_editar=True)
-        st.divider()
 
         docentes = listar_docentes(session, programa_id)
 
@@ -199,10 +206,10 @@ def render():
     finally:
         session.close()
 
-    st.divider()
-    entregas.render(st.session_state["usuario_id"], st.session_state["usuario_rol"])
 
-    st.divider()
+def render_administracion_usuarios():
+    """Página 'Administración de usuarios': altas, listado y edición de
+    las cuentas de docentes, Director y Secretario Académico."""
     st.subheader("👤 Administración de usuarios")
     st.caption("Crea aquí las cuentas de los 27 docentes, el Director y el Secretario Académico.")
 
@@ -224,8 +231,8 @@ def render():
             # Segunda barrera de defensa en profundidad: igual que el
             # backend FastAPI exige requiere_roles("director","secretario")
             # en POST /usuarios, esta accion sensible vuelve a comprobar el
-            # rol aqui mismo, sin depender solo de que direccion.render()
-            # se haya alcanzado unicamente desde ese camino de navegacion.
+            # rol aqui mismo, sin depender solo de que esta pagina se haya
+            # alcanzado unicamente desde ese camino de navegacion.
             if st.session_state.get("usuario_rol") not in ("director", "secretario"):
                 st.error("No tienes permiso para crear usuarios.")
             elif st.session_state.get("usuario_programa_id") is None:
@@ -310,6 +317,3 @@ def render():
                         st.error(f"No se pudo actualizar el usuario (¿cédula repetida?): {exc}")
                     finally:
                         session.close()
-
-    st.divider()
-    repositorio_asignaturas.render(st.session_state["usuario_id"], st.session_state["usuario_rol"])

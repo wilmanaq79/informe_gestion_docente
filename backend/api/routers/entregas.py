@@ -37,8 +37,10 @@ from db.repository import (
     listar_entregas,
     marcar_documento_visto,
     marcar_notificacion_entrega,
+    materias_del_docente,
     notificar_usuarios,
     obtener_o_crear_entrega,
+    periodo_activo,
     rechazar_entrega,
 )
 
@@ -99,6 +101,19 @@ def _verificar_acceso_entrega(entrega: Entrega, usuario: Usuario) -> None:
 @router.get("/tipos-documento")
 def tipos_documento(_usuario: Usuario = Depends(requiere_roles("docente", *ROLES_REVISORES))):
     return TIPOS_DOCUMENTO_ENTREGA
+
+
+@router.get("/materias-docente", response_model=list[str])
+def materias_docente(db: Session = Depends(get_db), usuario: Usuario = Depends(requiere_roles("docente"))):
+    """Materias que el propio docente ya tiene registradas en el periodo
+    activo -- para sugerir/prellenar el campo 'Materia' al subir un
+    documento de entrega, sin depender de haber pasado antes por la
+    sección de carga de notas en la misma sesión de navegador (fuente
+    persistida en BD, ver db.repository.materias_del_docente)."""
+    periodo = periodo_activo(db)
+    if periodo is None:
+        return []
+    return materias_del_docente(db, usuario.id, periodo.id)
 
 
 @router.get("", response_model=list[EntregaOut])

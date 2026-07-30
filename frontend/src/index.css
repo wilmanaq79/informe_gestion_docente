@@ -152,6 +152,8 @@ a {
 }
 
 .page {
+  flex: 1 1 auto;
+  min-width: 0;
   max-width: 960px;
   margin: 0 auto;
   padding: 1.5rem 1rem 4rem;
@@ -613,44 +615,100 @@ select:disabled {
   max-width: 42ch;
 }
 
-/* --- Navegacion rapida por secciones (paginas largas) --- */
+/* --- Shell de navegacion lateral (una pagina por sesion, por rol) --- */
 
-.seccion-nav {
+.app-shell__body {
+  display: flex;
+  align-items: flex-start;
+}
+
+.sidebar {
   position: sticky;
   top: 0;
-  z-index: 40;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.4rem;
-  overflow-x: auto;
-  width: 100%;
-  padding: 0.6rem 1rem;
-  background: color-mix(in srgb, var(--surface-2) 92%, transparent);
-  border-bottom: 1px solid var(--border);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
-
-.seccion-nav::-webkit-scrollbar {
-  height: 4px;
-}
-
-.seccion-nav__link {
+  align-self: flex-start;
+  max-height: 100vh;
+  overflow-y: auto;
+  width: 232px;
   flex-shrink: 0;
-  padding: 0.35rem 0.85rem;
-  border-radius: 999px;
-  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 1.25rem 0.85rem;
   background: var(--surface);
-  color: var(--texto-secundario);
-  font-size: 0.82rem;
-  font-weight: 600;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: border-color 0.15s ease, color 0.15s ease;
+  border-right: 1px solid var(--border);
 }
 
-.seccion-nav__link:hover {
-  border-color: var(--azul);
+.sidebar__link {
+  padding: 0.6rem 0.85rem;
+  border-radius: 8px;
+  color: var(--texto-secundario);
+  text-decoration: none;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.sidebar__link:hover {
+  background: var(--surface-2);
+  color: var(--texto);
+}
+
+.sidebar__link--activo,
+.sidebar__link--activo:hover {
+  background: color-mix(in srgb, var(--azul) 14%, transparent);
   color: var(--azul);
+}
+
+.sidebar__boton-movil {
+  display: none;
+}
+
+.sidebar__overlay {
+  display: none;
+}
+
+@media (max-width: 899px) {
+  .sidebar__boton-movil {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    position: fixed;
+    top: 0.65rem;
+    left: 0.65rem;
+    z-index: 60;
+    width: 42px;
+    height: 42px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    box-shadow: var(--sombra);
+    color: var(--texto);
+    font-size: 1.15rem;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    height: 100vh;
+    max-height: none;
+    z-index: 55;
+    box-shadow: var(--sombra);
+    padding-top: 3.75rem;
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+
+  .sidebar--abierto {
+    transform: translateX(0);
+  }
+
+  .sidebar__overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(0, 0, 0, 0.4);
+  }
 }

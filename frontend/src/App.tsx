@@ -1,14 +1,21 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import AvisoPrivacidad from "./components/AvisoPrivacidad";
+import CalendarioAcademico from "./components/CalendarioAcademico";
+import EntregasDocumentos from "./components/EntregasDocumentos";
 import ProtectedRoute from "./components/ProtectedRoute";
+import RepositorioAsignaturas from "./components/RepositorioAsignaturas";
 import { useAuth } from "./context/AuthContext";
+import DireccionLayout from "./layouts/DireccionLayout";
+import DocenteLayout from "./layouts/DocenteLayout";
+import SecretariaLayout from "./layouts/SecretariaLayout";
 import CambiarPasswordPage from "./pages/CambiarPasswordPage";
-import DireccionPage from "./pages/DireccionPage";
-import DocentePage from "./pages/DocentePage";
+import AdministracionUsuariosPage from "./pages/direccion/AdministracionUsuariosPage";
+import InformesDocentesPage from "./pages/direccion/InformesDocentesPage";
+import PeriodoActualPage from "./pages/direccion/PeriodoActualPage";
+import CargarNotasPage from "./pages/docente/CargarNotasPage";
 import LoginPage from "./pages/LoginPage";
 import RecuperarPasswordPage from "./pages/RecuperarPasswordPage";
 import RestablecerPasswordPage from "./pages/RestablecerPasswordPage";
-import SecretariaProgramaPage from "./pages/SecretariaProgramaPage";
 
 function InicioSegunRol() {
   const { usuario } = useAuth();
@@ -18,9 +25,9 @@ function InicioSegunRol() {
   // backend/main.py, _gate).
   if (usuario.debe_cambiar_password) return <CambiarPasswordPage forzado />;
   if (!usuario.acepto_tratamiento_datos) return <AvisoPrivacidad />;
-  if (usuario.rol === "docente") return <DocentePage />;
-  if (usuario.rol === "secretaria_programa") return <SecretariaProgramaPage />;
-  return <DireccionPage />;
+  if (usuario.rol === "docente") return <Navigate to="/docente" replace />;
+  if (usuario.rol === "secretaria_programa") return <Navigate to="/secretaria" replace />;
+  return <Navigate to="/direccion" replace />;
 }
 
 export default function App() {
@@ -37,6 +44,53 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+
+      <Route
+        path="/docente"
+        element={
+          <ProtectedRoute rolesPermitidos={["docente"]}>
+            <DocenteLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<Navigate to="calendario" replace />} />
+        <Route path="calendario" element={<CalendarioAcademico />} />
+        <Route path="notas" element={<CargarNotasPage />} />
+        <Route path="entregas" element={<EntregasDocumentos />} />
+        <Route path="repositorio" element={<RepositorioAsignaturas />} />
+      </Route>
+
+      <Route
+        path="/direccion"
+        element={
+          <ProtectedRoute rolesPermitidos={["director", "secretario"]}>
+            <DireccionLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<Navigate to="calendario" replace />} />
+        <Route path="calendario" element={<CalendarioAcademico />} />
+        <Route path="periodo" element={<PeriodoActualPage />} />
+        <Route path="informes" element={<InformesDocentesPage />} />
+        <Route path="entregas" element={<EntregasDocumentos />} />
+        <Route path="usuarios" element={<AdministracionUsuariosPage />} />
+        <Route path="repositorio" element={<RepositorioAsignaturas />} />
+      </Route>
+
+      <Route
+        path="/secretaria"
+        element={
+          <ProtectedRoute rolesPermitidos={["secretaria_programa"]}>
+            <SecretariaLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route index element={<Navigate to="calendario" replace />} />
+        <Route path="calendario" element={<CalendarioAcademico />} />
+        <Route path="entregas" element={<EntregasDocumentos />} />
+        <Route path="repositorio" element={<RepositorioAsignaturas />} />
+      </Route>
+
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

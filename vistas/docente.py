@@ -1,6 +1,7 @@
-"""Vista del docente: cargar PDF de notas por materia, generar el Excel de
-gestion docente y ver el dashboard de rendimiento. Ademas de escribir el
-Excel, cada procesamiento se guarda en la base de datos (informes_corte +
+"""Vista del docente -- pagina 'Cargar notas' (ver app.py, st.navigation):
+cargar PDF de notas por materia, generar el Excel de gestion docente y
+ver el dashboard de rendimiento. Ademas de escribir el Excel, cada
+procesamiento se guarda en la base de datos (informes_corte +
 notas_estudiantes) para que el Director y el Secretario Academico puedan
 consultarlo despues."""
 import uuid
@@ -33,7 +34,6 @@ from db.repository import (
     obtener_o_crear_asignacion,
     periodo_activo,
 )
-from vistas import calendario, entregas, repositorio_asignaturas
 
 PALETA = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
 MUTED = "#898781"
@@ -211,7 +211,11 @@ def _render_dashboard_rendimiento(subject_rows, corte):
             st.write(interpretar_materia(est))
 
 
-def render(usuario_id: int):
+def render_cargar_notas(usuario_id: int):
+    """Página 'Cargar notas': Corte y plantilla + PDF de notas por
+    materia + Procesar + Dashboard de rendimiento. Se mantienen juntas
+    porque son un flujo secuencial con estado compartido (corte, Excel,
+    PDFs, resultado) -- no sesiones independientes."""
     st.caption(
         "Carga los PDF de notas de todas tus materias para un corte, confirma a qué "
         "bloque de la plantilla corresponde cada uno, y el agente genera un solo "
@@ -220,9 +224,6 @@ def render(usuario_id: int):
         "Cada materia procesada queda guardada en la base de datos para el Director y el "
         "Secretario Académico."
     )
-
-    calendario.render(puede_editar=False)
-    st.divider()
 
     st.subheader("1. Corte y plantilla")
     corte = st.radio(
@@ -514,9 +515,3 @@ def render(usuario_id: int):
         _render_dashboard_rendimiento(subject_rows, corte)
     else:
         st.info("Sube al menos un PDF de notas (sección 2) para ver el dashboard de rendimiento.")
-
-    st.divider()
-    entregas.render(usuario_id, "docente", materias_disponibles=materias_disponibles)
-
-    st.divider()
-    repositorio_asignaturas.render(usuario_id, "docente")

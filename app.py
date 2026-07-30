@@ -26,6 +26,42 @@ from vistas import (
     repositorio_asignaturas,
 )
 
+# Una pagina por sesion (st.navigation dibuja su propio sidebar nativo,
+# sin necesidad de CSS/componentes propios) -- mismo criterio de
+# agrupacion que en el frontend React (ver docs/planRediseñoNavegacion.md):
+# el flujo de carga de notas del docente y el bloque
+# Alcance+Dashboard+Docentes de Direccion se mantienen en una sola
+# pagina cada uno porque comparten estado, el resto son paginas propias.
+
+
+def _paginas_docente(usuario_id: int) -> list:
+    return [
+        st.Page(lambda: calendario.render(puede_editar=False), title="Calendario académico", icon="🗓️", url_path="calendario"),
+        st.Page(lambda: docente.render_cargar_notas(usuario_id), title="Cargar notas (MI-DO-FO16)", icon="📥", url_path="notas", default=True),
+        st.Page(lambda: entregas.render(usuario_id, "docente"), title="Entrega de documentos", icon="📎", url_path="entregas"),
+        st.Page(lambda: repositorio_asignaturas.render(usuario_id, "docente"), title="Repositorio", icon="📚", url_path="repositorio"),
+    ]
+
+
+def _paginas_direccion(usuario_id: int, rol: str) -> list:
+    return [
+        st.Page(lambda: calendario.render(puede_editar=True), title="Calendario académico", icon="🗓️", url_path="calendario", default=True),
+        st.Page(direccion.render_periodo, title="Periodo actual", icon="🟢", url_path="periodo"),
+        st.Page(direccion.render_informes, title="Informes y seguimiento docente", icon="📊", url_path="informes"),
+        st.Page(lambda: entregas.render(usuario_id, rol), title="Entregas", icon="📎", url_path="entregas"),
+        st.Page(direccion.render_administracion_usuarios, title="Usuarios", icon="👤", url_path="usuarios"),
+        st.Page(lambda: repositorio_asignaturas.render(usuario_id, rol), title="Repositorio", icon="📚", url_path="repositorio"),
+    ]
+
+
+def _paginas_secretaria(usuario_id: int, rol: str) -> list:
+    return [
+        st.Page(lambda: calendario.render(puede_editar=False), title="Calendario académico", icon="🗓️", url_path="calendario", default=True),
+        st.Page(lambda: entregas.render(usuario_id, rol), title="Entregas", icon="📎", url_path="entregas"),
+        st.Page(lambda: repositorio_asignaturas.render(usuario_id, rol), title="Repositorio", icon="📚", url_path="repositorio"),
+    ]
+
+
 RAIZ = Path(__file__).resolve().parent
 ESCUDO_UNPA = RAIZ / "assets" / "escudo_unpa.jpg"
 LOGO_PROGRAMA = RAIZ / "assets" / "logo_programa.png"
@@ -103,28 +139,25 @@ else:
         st.stop()
 
     rol = st.session_state["usuario_rol"]
+    usuario_id = st.session_state["usuario_id"]
     session = get_session()
     try:
-        cambiar_password.render_opcional(session, st.session_state["usuario_id"])
+        cambiar_password.render_opcional(session, usuario_id)
     finally:
         session.close()
-    notificaciones.render(st.session_state["usuario_id"])
+    notificaciones.render(usuario_id)
     st.divider()
 
     if rol == "docente":
-        docente.render(st.session_state["usuario_id"])
+        st.navigation(_paginas_docente(usuario_id)).run()
     elif rol in ("director", "secretario"):
-        direccion.render()
+        st.navigation(_paginas_direccion(usuario_id, rol)).run()
     elif rol == "secretaria_programa":
         st.caption(
             "Revisa las entregas documentales de los docentes (listas de asistencia, notas firmadas, "
             "informe de gestión docente) y aprueba o rechaza cada una. Al aprobar, se notifica por correo "
             "al Director, al Secretario Académico, a la Secretaria del Programa y al docente."
         )
-        calendario.render(puede_editar=False)
-        st.divider()
-        entregas.render(st.session_state["usuario_id"], rol)
-        st.divider()
-        repositorio_asignaturas.render(st.session_state["usuario_id"], rol)
+        st.navigation(_paginas_secretaria(usuario_id, rol)).run()
     else:
         st.error(f"Rol desconocido: {rol}")

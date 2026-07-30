@@ -107,6 +107,7 @@ def listar(
     corte_numero: int | None = None,
     estado: str | None = None,
     documento: str | None = None,
+    docente_id: int | None = None,
     db: Session = Depends(get_db),
     usuario: Usuario = Depends(requiere_roles("docente", *ROLES_REVISORES)),
 ):
@@ -114,11 +115,13 @@ def listar(
     if corte_numero is not None:
         corte = corte_por_numero(db, corte_numero)
         corte_id = corte.id if corte else -1
-    docente_id = usuario.id if usuario.rol.nombre == "docente" else None
-    # 'documento' (cedula) solo tiene sentido para los roles revisores: un
-    # docente solo ve las suyas de todas formas (docente_id ya lo fuerza).
+    # 'documento' (cedula, aun soportado) y 'docente_id' (selector por
+    # nombre) solo tienen sentido para los roles revisores: un docente
+    # solo ve las suyas de todas formas, sin importar lo que pida.
+    docente_id_efectivo = usuario.id if usuario.rol.nombre == "docente" else docente_id
     entregas = listar_entregas(
-        db, usuario.programa_id, periodo_id=periodo_id, corte_id=corte_id, estado=estado, docente_id=docente_id,
+        db, usuario.programa_id, periodo_id=periodo_id, corte_id=corte_id, estado=estado,
+        docente_id=docente_id_efectivo,
         documento_docente=documento if usuario.rol.nombre != "docente" else None,
     )
     return [_out(e) for e in entregas]

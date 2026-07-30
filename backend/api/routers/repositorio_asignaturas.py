@@ -3,7 +3,11 @@ materia. Cualquier rol autenticado puede consultar, buscar por materia
 y descargar. Director, Secretario Académico y Secretaria del Programa
 cargan/actualizan el sílabo, crean/renombran asignaturas, reasignan el
 docente y eliminan. Cada docente actualiza (sube o quita) el programa de
-asignatura únicamente de la materia que él mismo dicta."""
+asignatura únicamente de la materia que él mismo dicta. Los formatos
+institucionales (gestión y autoevaluación docente, acuerdo pedagógico,
+plan de actividades) NO viven aquí -- son un único juego de archivos por
+programa académico completo, ver backend/api/routers/
+formatos_institucionales.py."""
 import io
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -26,13 +30,12 @@ from backend.schemas.repositorio_asignatura import (
 from db.models import RepositorioAsignatura, Usuario
 from db.repository import (
     actualizar_repositorio_asignatura,
-    adjuntar_programa,
-    adjuntar_silabo,
+    adjuntar_archivo_repositorio,
     crear_repositorio_asignatura,
     eliminar_repositorio_asignatura,
     listar_repositorio_asignaturas,
-    quitar_programa,
-    quitar_silabo,
+    materias_del_programa,
+    quitar_archivo_repositorio,
     repositorio_asignatura_por_id,
 )
 
@@ -76,6 +79,20 @@ def listar(
     usuario: Usuario = Depends(requiere_roles(*ROLES_TODOS)),
 ):
     return [_out(e) for e in listar_repositorio_asignaturas(db, usuario.programa_id, busqueda=busqueda)]
+
+
+@router.get("/materias-sugeridas", response_model=list[str])
+def materias_sugeridas(
+    db: Session = Depends(get_db),
+    usuario: Usuario = Depends(requiere_roles(*ROLES_EDITORES)),
+):
+    """Nombres de materia ya registrados en asignaciones_academicas para
+    este programa -- para sugerir/prellenar el campo 'Nombre de la
+    asignatura' al agregar una entrada al repositorio, en vez de
+    depender solo de texto libre. Debe registrarse ANTES que la ruta
+    dinamica '/{id_}' para que FastAPI no intente interpretar
+    'materias-sugeridas' como un id."""
+    return materias_del_programa(db, usuario.programa_id)
 
 
 @router.get("/{id_}", response_model=RepositorioAsignaturaOut)
@@ -148,8 +165,7 @@ def _subir(db: Session, id_: int, archivo: UploadFile, usuario: Usuario, tipo: s
         ruta_relativa, tamano = guardar_archivo_repositorio(id_, tipo, archivo.filename or "archivo", contenido)
     except ArchivoInvalido as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    fn = adjuntar_silabo if tipo == "silabo" else adjuntar_programa
-    entrada = fn(db, id_, archivo.filename or "archivo", ruta_relativa, tamano, usuario.id)
+    entrada = adjuntar_archivo_repositorio(db, id_, tipo, archivo.filename or "archivo", ruta_relativa, tamano, usuario.id)
     if entrada is None:
         raise HTTPException(status_code=404, detail="Asignatura no encontrada en el repositorio")
     return entrada
@@ -193,7 +209,7 @@ def borrar_silabo(
         raise HTTPException(status_code=404, detail="Asignatura no encontrada en el repositorio")
     verificar_pertenece_a_programa(entrada.programa_id, usuario)
 
-    if not quitar_silabo(db, id_, usuario.id):
+    if not quitar_archivo_repositorio(db, id_, "silabo", usuario.id):
         raise HTTPException(status_code=404, detail="No hay sílabo cargado para esta asignatura.")
     return {"ok": True}
 
@@ -207,7 +223,7 @@ def borrar_programa(
         raise HTTPException(status_code=404, detail="Asignatura no encontrada en el repositorio")
     verificar_pertenece_a_programa(entrada.programa_id, usuario)
     _verificar_permiso_programa(entrada, usuario)
-    if not quitar_programa(db, id_, usuario.id):
+    if not quitar_archivo_repositorio(db, id_, "programa", usuario.id):
         raise HTTPException(status_code=404, detail="No hay programa de asignatura cargado para esta materia.")
     return {"ok": True}
 

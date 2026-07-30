@@ -27,6 +27,9 @@ entregas_docentes/
 # Repositorio de silabos y programas de asignatura (archivos reales)
 repositorio_asignaturas/
 
+# Formatos institucionales por programa academico (archivos reales)
+formatos_institucionales/
+
 # Frontend (Node / Vite)
 frontend/node_modules/
 frontend/dist/

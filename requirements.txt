@@ -1,6 +1,7 @@
 streamlit
 pdfplumber
 pypdf
+Pillow
 openpyxl
 pandas
 plotly

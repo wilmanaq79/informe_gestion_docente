@@ -28,6 +28,7 @@ from db.repository import (
     ids_personal_revisor,
     listar_entregas,
     listar_periodos,
+    listar_usuarios,
     marcar_documento_visto,
     marcar_notificacion_entrega,
     notificar_usuarios,
@@ -289,19 +290,28 @@ def _render_docente(session, usuario_id, periodo, corte, corte_numero, materias_
 
 
 def _render_revisor(session, periodo_id, corte):
-    col_estado, col_busqueda = st.columns(2)
+    programa_id = st.session_state.get("usuario_programa_id")
+    col_estado, col_docente = st.columns(2)
     estado_txt = col_estado.selectbox(
         "Estado", ["Todos", "Pendientes", "Aprobadas", "Rechazadas"], key="entregas_estado_filtro"
     )
     estado = {"Todos": None, "Pendientes": "pendiente", "Aprobadas": "aprobado", "Rechazadas": "rechazado"}[estado_txt]
-    busqueda_documento = col_busqueda.text_input(
-        "Buscar por cédula del docente", key="entregas_busqueda_documento", placeholder="N.º de documento"
+
+    # Filtro por nombre de docente -- se prefiere sobre buscar por
+    # cédula, mas rapido de usar al revisar entregas.
+    docentes = [u for u in listar_usuarios(session, programa_id) if u.rol.nombre == "docente"]
+    opciones_docente = {"— Todos los docentes —": None}
+    for d in docentes:
+        opciones_docente[d.nombre_completo] = d.id
+    docente_txt = col_docente.selectbox(
+        "Filtrar por docente", list(opciones_docente.keys()), key="entregas_docente_filtro"
     )
+    docente_id_filtro = opciones_docente[docente_txt]
 
     entregas = listar_entregas(
-        session, st.session_state.get("usuario_programa_id"),
+        session, programa_id,
         periodo_id=periodo_id, corte_id=corte.id, estado=estado,
-        documento_docente=busqueda_documento.strip() or None,
+        docente_id=docente_id_filtro,
     )
     if not entregas:
         st.info("No hay entregas para este Periodo/Corte con el filtro elegido.")

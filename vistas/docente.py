@@ -29,6 +29,7 @@ from agente_notas.estadisticas import (
 from db.database import get_session
 from db.repository import (
     guardar_informe_corte,
+    materias_del_docente,
     obtener_o_crear_asignacion,
     periodo_activo,
 )
@@ -246,6 +247,23 @@ def render(usuario_id: int):
             excel_file.seek(0)
         except Exception as exc:
             st.warning(f"No se pudo leer la lista de materias de la plantilla: {exc}")
+
+    # Se completa con las materias YA guardadas en la base de datos para
+    # este periodo -- esa parte de la lista sobrevive a un refresco de
+    # pagina (que borra la plantilla Excel recien subida, porque los
+    # file_uploader de Streamlit no persisten entre refrescos) y tambien
+    # sobrevive a cerrar sesion, porque viene de datos ya confirmados,
+    # no de un archivo en memoria de esta ejecucion.
+    session_materias = get_session()
+    try:
+        periodo_para_materias = periodo_activo(session_materias)
+        if periodo_para_materias is not None:
+            materias_bd = materias_del_docente(session_materias, usuario_id, periodo_para_materias.id)
+            materias_disponibles = list(materias_disponibles) + [
+                m for m in materias_bd if m not in materias_disponibles
+            ]
+    finally:
+        session_materias.close()
 
     st.subheader("2. PDF de notas por materia")
     st.write("Sube uno o varios PDF (uno por cada materia que dictas este corte).")

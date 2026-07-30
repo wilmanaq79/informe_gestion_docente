@@ -7,6 +7,8 @@ import pytest
 
 from agente_notas.almacenamiento import (
     ArchivoInvalido,
+    EXTENSIONES_POR_TIPO_INSTITUCIONAL,
+    EXTENSIONES_POR_TIPO_REPOSITORIO,
     TAMANO_MAXIMO_BYTES,
     _sanitizar,
     nombre_seguro_para_header,
@@ -17,7 +19,9 @@ from agente_notas.almacenamiento import (
 
 
 class TestWhitelistExtensiones:
-    @pytest.mark.parametrize("nombre", ["informe.pdf", "notas.xlsx", "foto.jpg", "foto.jpeg", "foto.png"])
+    @pytest.mark.parametrize(
+        "nombre", ["informe.pdf", "notas.xlsx", "foto.jpg", "foto.jpeg", "foto.png", "acuerdo.doc", "acuerdo.docx"]
+    )
     def test_extensiones_permitidas_no_fallan(self, nombre):
         validar_archivo_subido(nombre, b"contenido")  # no debe lanzar
 
@@ -25,6 +29,39 @@ class TestWhitelistExtensiones:
     def test_extensiones_no_permitidas_se_rechazan(self, nombre):
         with pytest.raises(ArchivoInvalido):
             validar_archivo_subido(nombre, b"contenido")
+
+
+class TestExtensionesPorTipoRepositorio:
+    """El repositorio de asignaturas (silabo/programa, por materia)
+    exige una extension mas estricta POR TIPO de archivo (subconjunto
+    de la whitelist general)."""
+
+    @pytest.mark.parametrize("tipo", ["silabo", "programa"])
+    def test_silabo_y_programa_aceptan_pdf_doc_o_docx(self, tipo):
+        for nombre in ("archivo.pdf", "archivo.doc", "archivo.docx"):
+            validar_archivo_subido(nombre, b"x", EXTENSIONES_POR_TIPO_REPOSITORIO[tipo])
+        with pytest.raises(ArchivoInvalido):
+            validar_archivo_subido("archivo.xlsx", b"x", EXTENSIONES_POR_TIPO_REPOSITORIO[tipo])
+
+
+class TestExtensionesPorTipoInstitucional:
+    """Los formatos institucionales (uno por programa academico
+    completo, no por materia) tambien exigen una extension estricta
+    POR TIPO -- p.ej. el formato de gestion y autoevaluacion docente
+    debe ser .xlsx, no .doc, aunque .doc este permitido en general."""
+
+    @pytest.mark.parametrize("tipo", ["gestion_docente", "lista_asistencia"])
+    def test_gestion_docente_y_lista_asistencia_solo_aceptan_xlsx(self, tipo):
+        validar_archivo_subido("plantilla.xlsx", b"x", EXTENSIONES_POR_TIPO_INSTITUCIONAL[tipo])
+        with pytest.raises(ArchivoInvalido):
+            validar_archivo_subido("plantilla.doc", b"x", EXTENSIONES_POR_TIPO_INSTITUCIONAL[tipo])
+
+    @pytest.mark.parametrize("tipo", ["acuerdo_pedagogico", "plan_actividades"])
+    def test_acuerdo_y_plan_solo_aceptan_doc_o_docx(self, tipo):
+        validar_archivo_subido("formato.doc", b"x", EXTENSIONES_POR_TIPO_INSTITUCIONAL[tipo])
+        validar_archivo_subido("formato.docx", b"x", EXTENSIONES_POR_TIPO_INSTITUCIONAL[tipo])
+        with pytest.raises(ArchivoInvalido):
+            validar_archivo_subido("formato.xlsx", b"x", EXTENSIONES_POR_TIPO_INSTITUCIONAL[tipo])
 
 
 class TestLimiteTamano:

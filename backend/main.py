@@ -18,6 +18,7 @@ from backend.api.routers import (
     dashboard,
     docentes,
     entregas,
+    formatos_institucionales,
     informes,
     notificaciones,
     periodos,
@@ -65,6 +66,7 @@ app.include_router(calendario.router, dependencies=_gate)
 app.include_router(entregas.router, dependencies=_gate)
 app.include_router(notificaciones.router, dependencies=_gate)
 app.include_router(repositorio_asignaturas.router, dependencies=_gate)
+app.include_router(formatos_institucionales.router, dependencies=_gate)
 
 
 @app.get("/api/health", tags=["health"])

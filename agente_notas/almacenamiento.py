@@ -14,7 +14,8 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent.parent
 DIRECTORIO_ENTREGAS = RAIZ / "entregas_docentes"
 DIRECTORIO_REPOSITORIO = RAIZ / "repositorio_asignaturas"
-DIRECTORIOS_PERMITIDOS = (DIRECTORIO_ENTREGAS, DIRECTORIO_REPOSITORIO)
+DIRECTORIO_INSTITUCIONAL = RAIZ / "formatos_institucionales"
+DIRECTORIOS_PERMITIDOS = (DIRECTORIO_ENTREGAS, DIRECTORIO_REPOSITORIO, DIRECTORIO_INSTITUCIONAL)
 
 # Whitelist real de extensiones aceptadas para CUALQUIER archivo que un
 # usuario suba (entregas y repositorio): el <input accept="..."> del
@@ -24,20 +25,46 @@ DIRECTORIOS_PERMITIDOS = (DIRECTORIO_ENTREGAS, DIRECTORIO_REPOSITORIO)
 # "inline" (ver descargar_documento/_descargar en los routers), el
 # navegador de un revisor (Director/Secretario/Secretaria) lo ejecutaria
 # en el origen de la API (XSS almacenado).
-EXTENSIONES_PERMITIDAS = {"pdf", "xlsx", "jpg", "jpeg", "png"}
+EXTENSIONES_PERMITIDAS = {"pdf", "xlsx", "jpg", "jpeg", "png", "doc", "docx"}
 TAMANO_MAXIMO_BYTES = 15 * 1024 * 1024  # 15 MB: de sobra para estos documentos
+
+# Whitelist mas estricta POR TIPO de archivo del repositorio de
+# asignaturas (subconjunto de EXTENSIONES_PERMITIDAS).
+EXTENSIONES_POR_TIPO_REPOSITORIO: dict[str, set[str]] = {
+    "silabo": {"pdf", "doc", "docx"},
+    "programa": {"pdf", "doc", "docx"},
+}
+
+# Whitelist mas estricta POR TIPO de los 4 formatos institucionales
+# (uno por programa academico completo, no por materia): evita que,
+# p.ej., el formato de gestión y autoevaluación docente (que debe ser
+# .xlsx, la plantilla MI-DO-FO16 que el sistema ya usa en todo el flujo
+# de notas) se suba por error como .doc, o viceversa con el acuerdo
+# pedagógico/plan de actividades. La lista de asistencia comparte el
+# mismo formato .xlsx que las evidencias de asistencia que los docentes
+# ya suben en Entrega de documentos.
+EXTENSIONES_POR_TIPO_INSTITUCIONAL: dict[str, set[str]] = {
+    "gestion_docente": {"xlsx"},
+    "acuerdo_pedagogico": {"doc", "docx"},
+    "plan_actividades": {"doc", "docx"},
+    "lista_asistencia": {"xlsx"},
+}
 
 
 class ArchivoInvalido(ValueError):
     """Extension no permitida o archivo demasiado grande."""
 
 
-def validar_archivo_subido(nombre_original: str, contenido: bytes) -> None:
+def validar_archivo_subido(nombre_original: str, contenido: bytes, extensiones: set[str] | None = None) -> None:
+    """extensiones: subconjunto a exigir para este caso puntual (p.ej.
+    EXTENSIONES_POR_TIPO_REPOSITORIO[tipo]); por defecto, la whitelist
+    general EXTENSIONES_PERMITIDAS."""
+    extensiones_validas = extensiones if extensiones is not None else EXTENSIONES_PERMITIDAS
     extension = nombre_original.lower().rsplit(".", 1)[-1] if "." in nombre_original else ""
-    if extension not in EXTENSIONES_PERMITIDAS:
+    if extension not in extensiones_validas:
         raise ArchivoInvalido(
             f"Tipo de archivo '.{extension}' no permitido. Solo se aceptan: "
-            f"{', '.join(sorted(EXTENSIONES_PERMITIDAS))}."
+            f"{', '.join(sorted(extensiones_validas))}."
         )
     if len(contenido) > TAMANO_MAXIMO_BYTES:
         raise ArchivoInvalido(
@@ -79,11 +106,27 @@ def guardar_archivo_entrega(
 
 
 def guardar_archivo_repositorio(asignatura_id: int, tipo: str, nombre_original: str, contenido: bytes) -> tuple[str, int]:
-    """Guarda el sílabo o el programa de asignatura de una materia del
-    repositorio de consulta. 'tipo' es 'silabo' o 'programa'. Devuelve
-    (ruta_relativa_al_proyecto, tamaño_en_bytes)."""
-    validar_archivo_subido(nombre_original, contenido)
+    """Guarda un archivo del repositorio de consulta de una materia.
+    'tipo' es uno de db.repository.TIPOS_ARCHIVO_REPOSITORIO (silabo,
+    programa). Devuelve (ruta_relativa_al_proyecto, tamaño_en_bytes)."""
+    validar_archivo_subido(nombre_original, contenido, EXTENSIONES_POR_TIPO_REPOSITORIO.get(tipo))
     carpeta = DIRECTORIO_REPOSITORIO / f"asignatura_{asignatura_id}"
+    carpeta.mkdir(parents=True, exist_ok=True)
+
+    ruta_absoluta = carpeta / _nombre_archivo_unico(tipo, nombre_original)
+    ruta_absoluta.write_bytes(contenido)
+
+    ruta_relativa = ruta_absoluta.relative_to(RAIZ).as_posix()
+    return ruta_relativa, len(contenido)
+
+
+def guardar_archivo_institucional(programa_id: int, tipo: str, nombre_original: str, contenido: bytes) -> tuple[str, int]:
+    """Guarda uno de los 3 formatos institucionales (gestion_docente,
+    acuerdo_pedagogico, plan_actividades) del programa academico
+    completo -- ver db.repository.TIPOS_FORMATO_INSTITUCIONAL. Devuelve
+    (ruta_relativa_al_proyecto, tamaño_en_bytes)."""
+    validar_archivo_subido(nombre_original, contenido, EXTENSIONES_POR_TIPO_INSTITUCIONAL.get(tipo))
+    carpeta = DIRECTORIO_INSTITUCIONAL / f"programa_{programa_id}"
     carpeta.mkdir(parents=True, exist_ok=True)
 
     ruta_absoluta = carpeta / _nombre_archivo_unico(tipo, nombre_original)

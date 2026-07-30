@@ -1,7 +1,7 @@
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { api, mensajeError } from "../api/client";
 import { useAuth } from "../context/AuthContext";
-import { DocumentoEntrega, Entrega, Periodo } from "../types";
+import { DocumentoEntrega, Entrega, Periodo, UsuarioAdmin } from "../types";
 import EstadoVacio from "./ui/EstadoVacio";
 
 const CORTE_NOMBRE: Record<number, string> = { 1: "Corte 1", 2: "Corte 2", 3: "Corte 3 / Final" };
@@ -121,7 +121,8 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
   const [semestre, setSemestre] = useState<number | null>(null);
   const [corte, setCorte] = useState(1);
   const [estadoFiltro, setEstadoFiltro] = useState("");
-  const [busquedaDocumento, setBusquedaDocumento] = useState("");
+  const [docenteIdFiltro, setDocenteIdFiltro] = useState("");
+  const [docentes, setDocentes] = useState<UsuarioAdmin[]>([]);
   const [tipos, setTipos] = useState<Record<string, string>>({});
   const [entregas, setEntregas] = useState<Entrega[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -157,19 +158,28 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
       .get<Record<string, string>>("/entregas/tipos-documento")
       .then(({ data }) => setTipos(data))
       .catch(() => {});
+    if (!esDocente) {
+      // Lista de docentes del programa para el filtro por nombre -- se
+      // prefiere sobre buscar por cédula, mas rapido de usar en revision.
+      api
+        .get<UsuarioAdmin[]>("/usuarios")
+        .then(({ data }) => setDocentes(data.filter((u) => u.rol === "docente")))
+        .catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (periodoId == null) return;
     cargarEntregas();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [periodoId, corte, estadoFiltro, busquedaDocumento]);
+  }, [periodoId, corte, estadoFiltro, docenteIdFiltro]);
 
   async function cargarEntregas() {
     try {
       const params: Record<string, string | number> = { periodo_id: periodoId as number, corte_numero: corte };
       if (estadoFiltro) params.estado = estadoFiltro;
-      if (busquedaDocumento.trim()) params.documento = busquedaDocumento.trim();
+      if (docenteIdFiltro) params.docente_id = Number(docenteIdFiltro);
       const { data } = await api.get<Entrega[]>("/entregas", { params });
       setEntregas(data);
     } catch (err) {
@@ -397,12 +407,15 @@ export default function EntregasDocumentos({ materiasDisponibles = [] }: Props) 
               </select>
             </label>
             <label>
-              Buscar por cédula del docente
-              <input
-                value={busquedaDocumento}
-                onChange={(e) => setBusquedaDocumento(e.target.value)}
-                placeholder="N.º de documento"
-              />
+              Filtrar por docente
+              <select value={docenteIdFiltro} onChange={(e) => setDocenteIdFiltro(e.target.value)}>
+                <option value="">— Todos los docentes —</option>
+                {docentes.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.nombre_completo}
+                  </option>
+                ))}
+              </select>
             </label>
           </>
         )}

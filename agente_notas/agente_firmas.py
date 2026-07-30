@@ -22,7 +22,8 @@ menos confiable:
           "Docente: ____" (sin la palabra "firma" en ningun lado) y ese
           espacio esta completado con el nombre del docente -- ese
           campo ES el punto de firma/responsable en este tipo de
-          documento.
+          documento. Solo se usa si el documento NO tiene, en ninguna
+          parte, un renglon de firma explicito (ver mas abajo).
      Exigir 2 partes del nombre (no 1) y acotar la busqueda a la
      linea/fila donde aparece la ancla evita falsos positivos: un
      nombre de pila comun del docente (p.ej. "Andres") puede coincidir
@@ -36,13 +37,16 @@ menos confiable:
      una firma manuscrita en una imagen -- indeterminado, requiere
      revision humana.
 
-Limitacion conocida: la palabra "docente" tambien aparece en textos que
-no son un campo de firma (p.ej. un encabezado "Informe de Gestion
-Docente - Wilman Andres Quiñonez"). Si esa mencion cae en la misma
-linea/fila que el nombre completo, el agente puede marcarla como
-firmada aunque solo sea una identificacion. Por eso el veredicto sigue
-siendo de confianza "media", no "alta", y el humano revisor conserva
-la ultima palabra.
+Prioridad entre las anclas 2a y 2b (bug real corregido): si el
+documento tiene algun renglon con "firma"/"firmado"/etc en cualquier
+parte, ESE renglon manda y el ancla 2b ("Docente: ____") deja de
+consultarse -- si ninguno de esos renglones de firma trae el nombre
+completo, el documento se da por NO firmado. Antes de esta correccion,
+un reporte de Academusoft con un encabezado "Identificación Docente:
+NOMBRE" (mera identificacion, no firma) se marcaba como firmado aunque
+el renglon real "Firma Del Docente: ______" mas abajo estuviera en
+blanco, porque el ancla 2b encontraba el encabezado antes de llegar al
+renglon de firma vacio.
 """
 import re
 import unicodedata
@@ -51,9 +55,18 @@ from io import BytesIO
 
 import pdfplumber
 from openpyxl import load_workbook
+from PIL import Image
 from pypdf import PdfReader
 
 PALABRAS_FIRMA = ("firma", "firmado", "firmó", "firmo", "suscrito", "suscribe", "suscrita")
+
+# Una imagen mas pequeña que esto en ambas dimensiones es, con altisima
+# probabilidad, un icono/logo decorativo de membrete (p.ej. el escudo de
+# la universidad en un reporte de Academusoft) y NO una firma o sello
+# escaneado -- no debe disparar el veredicto "indeterminado, requiere
+# revision manual". Una firma pegada como imagen real observada en
+# pruebas mide 169x74 px, muy por encima de este umbral.
+TAMANO_MINIMO_IMAGEN_FIRMA = 40
 
 
 def _normalizar(texto: str) -> str:
@@ -88,19 +101,37 @@ def _buscar_firma_en_lineas(lineas: list, nombre_docente: str) -> str | None:
     evidencia de firma. Revisa cada linea junto con la siguiente, por si
     la etiqueta ("Firma:", "Docente:") y el nombre completado quedan en
     lineas/filas separadas. Devuelve 'firma' o 'docente' segun cual
-    ancla disparo el hallazgo, o None si no se encontro evidencia."""
+    ancla disparo el hallazgo, o None si no se encontro evidencia.
+
+    Si el documento trae un campo de firma explicito ("Firma"/
+    "Firmado"/etc.), ESE campo manda sobre el ancla mas debil
+    "Docente: ____", y se revisa PRIMERO: muchos reportes
+    institucionales (p.ej. Academusoft) traen un encabezado de mera
+    identificacion ("Identificación Docente: NOMBRE") que no es una
+    firma, seguido mas abajo por el verdadero renglon de firma en
+    blanco ("Firma Del Docente: ________"). Si se revisara el ancla
+    "docente" primero, ese encabezado de identificacion se confundia
+    con una firma real (bug reportado: PDF de Academusoft marcado como
+    firmado sin estarlo). Por eso: si existe algun renglon de firma en
+    el documento, solo esos renglones deciden el resultado -- si
+    ninguno trae el nombre completo, el documento se da por NO firmado,
+    sin recurrir al encabezado de identificacion como respaldo."""
     lineas_norm = [_normalizar(l) for l in lineas]
+    ventanas = []
     for i, actual in enumerate(lineas_norm):
         siguiente = lineas_norm[i + 1] if i + 1 < len(lineas_norm) else ""
-        ventana = f"{actual} {siguiente}"
+        ventanas.append(f"{actual} {siguiente}")
 
-        tiene_firma = any(_contiene_palabra(ventana, palabra) for palabra in PALABRAS_FIRMA)
-        tiene_docente = _contiene_palabra(ventana, "docente")
-        if not (tiene_firma or tiene_docente):
-            continue
+    ventanas_firma = [v for v in ventanas if any(_contiene_palabra(v, palabra) for palabra in PALABRAS_FIRMA)]
+    if ventanas_firma:
+        for ventana in ventanas_firma:
+            if _nombre_coincide_fuerte(ventana, nombre_docente):
+                return "firma"
+        return None
 
-        if _nombre_coincide_fuerte(ventana, nombre_docente):
-            return "firma" if tiene_firma else "docente"
+    for ventana in ventanas:
+        if _contiene_palabra(ventana, "docente") and _nombre_coincide_fuerte(ventana, nombre_docente):
+            return "docente"
 
     return None
 
@@ -135,6 +166,9 @@ def _lineas_pdf(contenido: bytes) -> list:
 
 
 def _tiene_imagenes_pdf(contenido: bytes) -> bool:
+    """Ignora imagenes mas pequeñas que TAMANO_MINIMO_IMAGEN_FIRMA en
+    ambas dimensiones (iconos/logos de membrete) -- solo cuentan como
+    "posible firma o sello" las imagenes de tamaño creible para eso."""
     try:
         reader = PdfReader(BytesIO(contenido))
         for pagina in reader.pages:
@@ -143,7 +177,11 @@ def _tiene_imagenes_pdf(contenido: bytes) -> bool:
             if not xobjects:
                 continue
             for objeto in xobjects.values():
-                if objeto.get_object().get("/Subtype") == "/Image":
+                img = objeto.get_object()
+                if img.get("/Subtype") != "/Image":
+                    continue
+                ancho, alto = img.get("/Width", 0), img.get("/Height", 0)
+                if ancho >= TAMANO_MINIMO_IMAGEN_FIRMA or alto >= TAMANO_MINIMO_IMAGEN_FIRMA:
                     return True
     except Exception:
         pass
@@ -199,11 +237,24 @@ def _tiene_firma_digital_xlsx(contenido: bytes) -> bool:
 
 
 def _tiene_imagenes_xlsx(contenido: bytes) -> bool:
+    """Igual que _tiene_imagenes_pdf: ignora imagenes mas pequeñas que
+    TAMANO_MINIMO_IMAGEN_FIRMA en ambas dimensiones (iconos/logos de
+    membrete pegados en una celda) -- solo cuentan las de tamaño
+    creible para ser una firma o sello escaneado."""
     try:
         with zipfile.ZipFile(BytesIO(contenido)) as z:
-            return any(nombre.startswith("xl/media/") for nombre in z.namelist())
+            medios = [nombre for nombre in z.namelist() if nombre.startswith("xl/media/")]
+            for nombre in medios:
+                try:
+                    with Image.open(BytesIO(z.read(nombre))) as img:
+                        ancho, alto = img.size
+                except Exception:
+                    continue
+                if ancho >= TAMANO_MINIMO_IMAGEN_FIRMA or alto >= TAMANO_MINIMO_IMAGEN_FIRMA:
+                    return True
     except Exception:
-        return False
+        pass
+    return False
 
 
 def _lineas_xlsx(contenido: bytes) -> list:

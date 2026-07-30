@@ -20,6 +20,7 @@ from db.models import (
     NotaEstudiante,
     Notificacion,
     PeriodoAcademico,
+    Programa,
     RepositorioAsignatura,
     Rol,
     TokenRecuperacionPassword,
@@ -150,6 +151,41 @@ def obtener_o_crear_asignacion(
         session.add(asignacion)
         session.commit() if commit else session.flush()
     return asignacion
+
+
+def materias_del_programa(session, programa_id: int) -> list[str]:
+    """Nombres de materia (asignatura) que YA se han registrado en algun
+    periodo para este programa academico (tabla asignaciones_academicas)
+    -- fuente persistente para sugerir el 'Nombre de la asignatura' al
+    agregar una entrada al repositorio de silabos (vistas/
+    repositorio_asignaturas.py), en vez de depender solo de que el
+    Director recuerde y escriba el nombre exacto a mano. No se filtra
+    por periodo: el repositorio de silabos no es por semestre, asi que
+    interesa cualquier materia historicamente dictada en el programa."""
+    stmt = (
+        select(AsignacionAcademica.asignatura)
+        .where(AsignacionAcademica.programa_id == programa_id)
+        .distinct()
+        .order_by(AsignacionAcademica.asignatura)
+    )
+    return list(session.scalars(stmt).all())
+
+
+def materias_del_docente(session, docente_id: int, periodo_id: int) -> list[str]:
+    """Nombres de materia (asignatura) que el docente YA tiene registradas
+    en la base de datos para este periodo -- fuente persistente para la
+    lista desplegable de 'Entrega de documentos' (vistas/docente.py),
+    a diferencia de la lista derivada solo de la plantilla Excel recien
+    subida en la ejecucion actual, que se pierde en cualquier refresco
+    de pagina porque los file_uploader de Streamlit no sobreviven a un
+    refresco del navegador."""
+    stmt = (
+        select(AsignacionAcademica.asignatura)
+        .where(AsignacionAcademica.docente_id == docente_id, AsignacionAcademica.periodo_id == periodo_id)
+        .distinct()
+        .order_by(AsignacionAcademica.asignatura)
+    )
+    return list(session.scalars(stmt).all())
 
 
 def guardar_informe_corte(
@@ -1012,16 +1048,32 @@ def actualizar_repositorio_asignatura(
     return entrada
 
 
-def adjuntar_silabo(
-    session, id_: int, nombre_archivo: str, ruta_archivo: str, tamano_bytes: int, actualizado_por_id: int
+# Todo tipo de archivo que puede vivir en una fila del repositorio de
+# asignaturas -- cada uno tiene sus propias 3 columnas
+# {tipo}_nombre_archivo/{tipo}_ruta_archivo/{tipo}_tamano_bytes en
+# RepositorioAsignatura (ver db/models.py). Se centraliza aqui la lista
+# para que adjuntar/quitar/eliminar operen sobre cualquiera de ellos sin
+# duplicar la misma logica 2 veces. Los formatos institucionales
+# (gestion_docente/acuerdo_pedagogico/plan_actividades) NO son por
+# materia -- ver TIPOS_FORMATO_INSTITUCIONAL mas abajo, que aplica la
+# misma logica pero sobre Programa.
+TIPOS_ARCHIVO_REPOSITORIO = ("silabo", "programa")
+
+
+def adjuntar_archivo_repositorio(
+    session, id_: int, tipo: str, nombre_archivo: str, ruta_archivo: str, tamano_bytes: int, actualizado_por_id: int
 ) -> RepositorioAsignatura | None:
+    """tipo: uno de TIPOS_ARCHIVO_REPOSITORIO. Sube o reemplaza el
+    archivo de ese tipo para una entrada del repositorio."""
+    if tipo not in TIPOS_ARCHIVO_REPOSITORIO:
+        raise ValueError(f"Tipo de archivo de repositorio invalido: {tipo!r}")
     entrada = session.get(RepositorioAsignatura, id_)
     if entrada is None:
         return None
-    ruta_anterior = entrada.silabo_ruta_archivo
-    entrada.silabo_nombre_archivo = nombre_archivo
-    entrada.silabo_ruta_archivo = ruta_archivo
-    entrada.silabo_tamano_bytes = tamano_bytes
+    ruta_anterior = getattr(entrada, f"{tipo}_ruta_archivo")
+    setattr(entrada, f"{tipo}_nombre_archivo", nombre_archivo)
+    setattr(entrada, f"{tipo}_ruta_archivo", ruta_archivo)
+    setattr(entrada, f"{tipo}_tamano_bytes", tamano_bytes)
     entrada.actualizado_por_id = actualizado_por_id
     session.commit()
     session.refresh(entrada)
@@ -1033,46 +1085,17 @@ def adjuntar_silabo(
     return entrada
 
 
-def adjuntar_programa(
-    session, id_: int, nombre_archivo: str, ruta_archivo: str, tamano_bytes: int, actualizado_por_id: int
-) -> RepositorioAsignatura | None:
+def quitar_archivo_repositorio(session, id_: int, tipo: str, actualizado_por_id: int) -> bool:
+    """tipo: uno de TIPOS_ARCHIVO_REPOSITORIO."""
+    if tipo not in TIPOS_ARCHIVO_REPOSITORIO:
+        raise ValueError(f"Tipo de archivo de repositorio invalido: {tipo!r}")
     entrada = session.get(RepositorioAsignatura, id_)
-    if entrada is None:
-        return None
-    ruta_anterior = entrada.programa_ruta_archivo
-    entrada.programa_nombre_archivo = nombre_archivo
-    entrada.programa_ruta_archivo = ruta_archivo
-    entrada.programa_tamano_bytes = tamano_bytes
-    entrada.actualizado_por_id = actualizado_por_id
-    session.commit()
-    session.refresh(entrada)
-    if ruta_anterior:
-        eliminar_archivo(ruta_anterior)
-    return entrada
-
-
-def quitar_silabo(session, id_: int, actualizado_por_id: int) -> bool:
-    entrada = session.get(RepositorioAsignatura, id_)
-    if entrada is None or not entrada.silabo_ruta_archivo:
+    ruta_anterior = getattr(entrada, f"{tipo}_ruta_archivo") if entrada else None
+    if entrada is None or not ruta_anterior:
         return False
-    ruta_anterior = entrada.silabo_ruta_archivo
-    entrada.silabo_nombre_archivo = None
-    entrada.silabo_ruta_archivo = None
-    entrada.silabo_tamano_bytes = None
-    entrada.actualizado_por_id = actualizado_por_id
-    session.commit()
-    eliminar_archivo(ruta_anterior)
-    return True
-
-
-def quitar_programa(session, id_: int, actualizado_por_id: int) -> bool:
-    entrada = session.get(RepositorioAsignatura, id_)
-    if entrada is None or not entrada.programa_ruta_archivo:
-        return False
-    ruta_anterior = entrada.programa_ruta_archivo
-    entrada.programa_nombre_archivo = None
-    entrada.programa_ruta_archivo = None
-    entrada.programa_tamano_bytes = None
+    setattr(entrada, f"{tipo}_nombre_archivo", None)
+    setattr(entrada, f"{tipo}_ruta_archivo", None)
+    setattr(entrada, f"{tipo}_tamano_bytes", None)
     entrada.actualizado_por_id = actualizado_por_id
     session.commit()
     eliminar_archivo(ruta_anterior)
@@ -1083,12 +1106,55 @@ def eliminar_repositorio_asignatura(session, id_: int) -> bool:
     entrada = session.get(RepositorioAsignatura, id_)
     if entrada is None:
         return False
-    ruta_silabo = entrada.silabo_ruta_archivo
-    ruta_programa = entrada.programa_ruta_archivo
+    rutas = [getattr(entrada, f"{tipo}_ruta_archivo") for tipo in TIPOS_ARCHIVO_REPOSITORIO]
     session.delete(entrada)
     session.commit()
-    if ruta_silabo:
-        eliminar_archivo(ruta_silabo)
-    if ruta_programa:
-        eliminar_archivo(ruta_programa)
+    for ruta in rutas:
+        if ruta:
+            eliminar_archivo(ruta)
+    return True
+
+
+# Los 4 formatos institucionales (gestion y autoevaluacion docente,
+# acuerdo pedagogico, plan de actividades, lista de asistencia) son un
+# unico juego de archivos por PROGRAMA ACADEMICO completo -- a
+# diferencia de silabo/programa de TIPOS_ARCHIVO_REPOSITORIO, que son
+# por materia. Mismas 3 columnas por tipo, en Programa (ver db/models.py).
+TIPOS_FORMATO_INSTITUCIONAL = ("gestion_docente", "acuerdo_pedagogico", "plan_actividades", "lista_asistencia")
+
+
+def adjuntar_formato_institucional(
+    session, programa_id: int, tipo: str, nombre_archivo: str, ruta_archivo: str, tamano_bytes: int
+) -> Programa | None:
+    """tipo: uno de TIPOS_FORMATO_INSTITUCIONAL. Sube o reemplaza el
+    archivo de ese tipo para el programa academico completo."""
+    if tipo not in TIPOS_FORMATO_INSTITUCIONAL:
+        raise ValueError(f"Tipo de formato institucional invalido: {tipo!r}")
+    programa = session.get(Programa, programa_id)
+    if programa is None:
+        return None
+    ruta_anterior = getattr(programa, f"{tipo}_ruta_archivo")
+    setattr(programa, f"{tipo}_nombre_archivo", nombre_archivo)
+    setattr(programa, f"{tipo}_ruta_archivo", ruta_archivo)
+    setattr(programa, f"{tipo}_tamano_bytes", tamano_bytes)
+    session.commit()
+    session.refresh(programa)
+    if ruta_anterior:
+        eliminar_archivo(ruta_anterior)
+    return programa
+
+
+def quitar_formato_institucional(session, programa_id: int, tipo: str) -> bool:
+    """tipo: uno de TIPOS_FORMATO_INSTITUCIONAL."""
+    if tipo not in TIPOS_FORMATO_INSTITUCIONAL:
+        raise ValueError(f"Tipo de formato institucional invalido: {tipo!r}")
+    programa = session.get(Programa, programa_id)
+    ruta_anterior = getattr(programa, f"{tipo}_ruta_archivo") if programa else None
+    if programa is None or not ruta_anterior:
+        return False
+    setattr(programa, f"{tipo}_nombre_archivo", None)
+    setattr(programa, f"{tipo}_ruta_archivo", None)
+    setattr(programa, f"{tipo}_tamano_bytes", None)
+    session.commit()
+    eliminar_archivo(ruta_anterior)
     return True

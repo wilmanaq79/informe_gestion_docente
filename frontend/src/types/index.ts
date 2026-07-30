@@ -286,3 +286,20 @@ export interface RepositorioAsignatura {
   creado_por_nombre: string | null;
   actualizado_por_nombre: string | null;
 }
+
+// Los 4 formatos institucionales (gestion y autoevaluacion docente,
+// acuerdo pedagogico, plan de actividades, lista de asistencia): un
+// unico juego de archivos por PROGRAMA ACADEMICO completo, no por
+// materia -- ver RepositorioAsignatura para el silabo/programa que si
+// son por materia.
+export interface FormatoInstitucional {
+  programa_id: number;
+  gestion_docente_nombre_archivo: string | null;
+  gestion_docente_tamano_bytes: number | null;
+  acuerdo_pedagogico_nombre_archivo: string | null;
+  acuerdo_pedagogico_tamano_bytes: number | null;
+  plan_actividades_nombre_archivo: string | null;
+  plan_actividades_tamano_bytes: number | null;
+  lista_asistencia_nombre_archivo: string | null;
+  lista_asistencia_tamano_bytes: number | null;
+}

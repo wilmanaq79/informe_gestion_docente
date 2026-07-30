@@ -107,7 +107,17 @@ class Programa(Base):
     Director, Secretario Academico, Secretaria del Programa, docentes,
     entregas y repositorio de silabos -- ninguno ve datos de otro. El
     calendario academico (PeriodoAcademico/Corte/EventoCalendario) es la
-    unica excepcion: sigue siendo institucional/compartido."""
+    unica excepcion: sigue siendo institucional/compartido.
+
+    Tambien guarda los 4 formatos institucionales (gestion y
+    autoevaluacion docente, acuerdo pedagogico, plan de actividades,
+    lista de asistencia): a diferencia del silabo/programa de
+    asignatura de RepositorioAsignatura (uno por MATERIA), estos son un
+    unico juego de archivos por PROGRAMA ACADEMICO completo --
+    Director/Secretario/Secretaria los suben, cualquier rol del
+    programa los consulta y descarga (ver
+    db.repository.TIPOS_FORMATO_INSTITUCIONAL,
+    backend/api/routers/formatos_institucionales.py)."""
 
     __tablename__ = "programas"
 
@@ -116,6 +126,22 @@ class Programa(Base):
     codigo: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)  # "ing-sistemas"
     logo_ruta_archivo: Mapped[str | None] = mapped_column(String(500))
     activo: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    gestion_docente_nombre_archivo: Mapped[str | None] = mapped_column(String(255))
+    gestion_docente_ruta_archivo: Mapped[str | None] = mapped_column(String(500))
+    gestion_docente_tamano_bytes: Mapped[int | None]
+
+    acuerdo_pedagogico_nombre_archivo: Mapped[str | None] = mapped_column(String(255))
+    acuerdo_pedagogico_ruta_archivo: Mapped[str | None] = mapped_column(String(500))
+    acuerdo_pedagogico_tamano_bytes: Mapped[int | None]
+
+    plan_actividades_nombre_archivo: Mapped[str | None] = mapped_column(String(255))
+    plan_actividades_ruta_archivo: Mapped[str | None] = mapped_column(String(500))
+    plan_actividades_tamano_bytes: Mapped[int | None]
+
+    lista_asistencia_nombre_archivo: Mapped[str | None] = mapped_column(String(255))
+    lista_asistencia_ruta_archivo: Mapped[str | None] = mapped_column(String(500))
+    lista_asistencia_tamano_bytes: Mapped[int | None]
 
 
 # --- Usuarios y asignaciones -------------------------------------------------
@@ -423,9 +449,14 @@ class TokenRecuperacionPassword(Base):
 
 class RepositorioAsignatura(Base):
     """Repositorio de consulta del sílabo y el programa de asignatura de
-    cada materia. Cualquier rol puede consultar/descargar; solo
-    Director, Secretario Académico y Secretaria del Programa pueden
-    cargar, actualizar, reasignar el docente o eliminar."""
+    cada materia. Director, Secretario Académico y Secretaria del
+    Programa cargan/actualizan/eliminan el sílabo; cada docente puede
+    actualizar el programa de asignatura de SU propia materia (ver
+    backend/api/routers/repositorio_asignaturas.py,
+    _verificar_permiso_programa). Los formatos institucionales
+    (gestión y autoevaluación docente, acuerdo pedagógico, plan de
+    actividades) NO viven aquí -- son un archivo único por programa
+    académico completo, ver la clase Programa."""
 
     __tablename__ = "repositorio_asignaturas"
     __table_args__ = (

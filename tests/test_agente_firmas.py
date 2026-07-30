@@ -5,7 +5,10 @@ Excel de prueba se generan en memoria con reportlab/openpyxl."""
 import io
 
 from openpyxl import Workbook
+from openpyxl.drawing.image import Image as XLImage
+from PIL import Image as PILImage
 from reportlab.lib.pagesizes import letter
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 
 from agente_notas.agente_firmas import (
@@ -17,6 +20,10 @@ from agente_notas.agente_firmas import (
 )
 
 NOMBRE_DOCENTE = "Wilman Andres Quinonez"
+
+
+def _imagen_pil(ancho: int, alto: int) -> PILImage.Image:
+    return PILImage.new("RGB", (ancho, alto), color="black")
 
 
 def _pdf_con_texto(lineas: list) -> bytes:
@@ -35,6 +42,38 @@ def _xlsx_con_filas(filas: list) -> bytes:
     ws = wb.active
     for fila in filas:
         ws.append(fila)
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()
+
+
+def _pdf_con_imagen(ancho: int, alto: int, lineas: list | None = None) -> bytes:
+    buffer = io.BytesIO()
+    c = canvas.Canvas(buffer, pagesize=letter)
+    y = 750
+    for linea in lineas or []:
+        c.drawString(50, y, linea)
+        y -= 20
+    img_buffer = io.BytesIO()
+    _imagen_pil(ancho, alto).save(img_buffer, format="PNG")
+    img_buffer.seek(0)
+    c.drawImage(ImageReader(img_buffer), 50, 400, width=max(ancho, 1), height=max(alto, 1))
+    c.save()
+    return buffer.getvalue()
+
+
+def _xlsx_con_imagen(ancho: int, alto: int, filas: list | None = None) -> bytes:
+    wb = Workbook()
+    ws = wb.active
+    for fila in filas or []:
+        ws.append(fila)
+    # openpyxl.drawing.image.Image necesita un objeto con .fp (como el que
+    # deja PILImage.open sobre un archivo/buffer) -- una Image.new() recien
+    # creada no lo tiene, por eso se guarda y se reabre desde un buffer.
+    img_buffer = io.BytesIO()
+    _imagen_pil(ancho, alto).save(img_buffer, format="PNG")
+    img_buffer.seek(0)
+    ws.add_image(XLImage(PILImage.open(img_buffer)), "A1")
     buffer = io.BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
@@ -80,6 +119,39 @@ class TestAnalizarPdf:
         v = analizar_documento("asistencia.pdf", pdf, NOMBRE_DOCENTE)
         assert v["firma_detectada"] is False
 
+    def test_pdf_academusoft_con_encabezado_docente_y_firma_vacia_no_se_marca_firmado(self):
+        # Bug real reportado: un reporte de notas de Academusoft trae un
+        # encabezado de mera identificacion ("Identificación Docente:
+        # NOMBRE") y, mas abajo, el renglon real de firma en blanco
+        # ("Firma Del Docente: ______"). El encabezado de identificacion
+        # NO debe hacer pasar el documento como firmado cuando el
+        # renglon de firma real esta vacio.
+        pdf = _pdf_con_texto(
+            [
+                "Identificacion Docente",
+                f"CC. 94444846 {NOMBRE_DOCENTE.upper()}",
+                "Materia Grupo",
+                "IS0810-ELECTIVA PROFESIONAL II IS08N1-W.QUINONEZ",
+                "Firma Del Docente: _______________________________",
+                "NOTA : Favor no adicionar estudiantes a la lista.",
+            ]
+        )
+        v = analizar_documento("notas.pdf", pdf, NOMBRE_DOCENTE)
+        assert v["firma_detectada"] is False
+
+    def test_pdf_academusoft_con_firma_realmente_completada_se_marca_firmado(self):
+        # Contraprueba: si ese mismo renglon de firma SI trae el nombre
+        # completo (firma digitada/transcrita), debe marcarse firmado.
+        pdf = _pdf_con_texto(
+            [
+                "Identificacion Docente",
+                f"CC. 94444846 {NOMBRE_DOCENTE.upper()}",
+                f"Firma Del Docente: {NOMBRE_DOCENTE}",
+            ]
+        )
+        v = analizar_documento("notas.pdf", pdf, NOMBRE_DOCENTE)
+        assert v["firma_detectada"] is True
+
 
 class TestAnalizarXlsx:
     def test_xlsx_con_firma_y_nombre_se_marca_firmado(self):
@@ -112,6 +184,37 @@ class TestAnalizarXlsx:
         )
         v = analizar_documento("asistencia.xlsx", xlsx, NOMBRE_DOCENTE)
         assert v["firma_detectada"] is False
+
+
+class TestImagenesPorTamano:
+    """Reproduce el caso real reportado: un icono/logo de membrete
+    (14x14 px) no debe disparar 'requiere revision manual', pero una
+    imagen de tamaño creible para ser una firma pegada (169x74 px,
+    tamaño real observado) SI debe seguir disparandolo -- eso no es un
+    bug, es la limitacion honesta y documentada del agente: una imagen
+    pegada no se puede verificar por software, necesita ojo humano."""
+
+    def test_pdf_con_icono_diminuto_no_dispara_revision_manual(self):
+        pdf = _pdf_con_imagen(14, 14, lineas=["Lista de asistencia"])
+        v = analizar_documento("asistencia.pdf", pdf, NOMBRE_DOCENTE)
+        assert v["firma_detectada"] is False
+
+    def test_pdf_con_imagen_de_tamano_real_si_requiere_revision_manual(self):
+        pdf = _pdf_con_imagen(169, 74, lineas=["Firma Del Docente"])
+        v = analizar_documento("asistencia.pdf", pdf, NOMBRE_DOCENTE)
+        assert v["firma_detectada"] is None
+        assert v["confianza"] == "baja"
+
+    def test_xlsx_con_icono_diminuto_no_dispara_revision_manual(self):
+        xlsx = _xlsx_con_imagen(14, 14, filas=[["Lista de asistencia"]])
+        v = analizar_documento("asistencia.xlsx", xlsx, NOMBRE_DOCENTE)
+        assert v["firma_detectada"] is False
+
+    def test_xlsx_con_imagen_de_tamano_real_si_requiere_revision_manual(self):
+        xlsx = _xlsx_con_imagen(169, 74, filas=[["Firma Del Docente"]])
+        v = analizar_documento("asistencia.xlsx", xlsx, NOMBRE_DOCENTE)
+        assert v["firma_detectada"] is None
+        assert v["confianza"] == "baja"
 
 
 class TestTiposNoSoportados:

@@ -1,21 +1,7 @@
 import { ChangeEvent, useEffect, useState } from "react";
-import { api, mensajeError } from "../api/client";
-import CalendarioAcademico from "../components/CalendarioAcademico";
-import EntregasDocumentos from "../components/EntregasDocumentos";
-import Header from "../components/Header";
-import RepositorioAsignaturas from "../components/RepositorioAsignaturas";
-import { GraficoDispersion, GraficoPromedioVsMejor, GraficoRanking } from "../components/charts/DashboardCharts";
-import SeccionNav from "../components/ui/SeccionNav";
-import { EstudianteNota, PdfPreview, ProcesarResponse, ResumenMateria } from "../types";
-
-const SECCIONES_NAV = [
-  { id: "calendario", etiqueta: "🗓️ Calendario académico" },
-  { id: "corte-plantilla", etiqueta: "1. Corte e informe de gestión docente (MI-DO-FO16)" },
-  { id: "pdf-notas", etiqueta: "2. PDF de notas" },
-  { id: "procesar", etiqueta: "4. Procesar" },
-  { id: "entregas", etiqueta: "📎 Entregas" },
-  { id: "repositorio", etiqueta: "📚 Repositorio" },
-];
+import { api, mensajeError } from "../../api/client";
+import { GraficoDispersion, GraficoPromedioVsMejor, GraficoRanking } from "../../components/charts/DashboardCharts";
+import { EstudianteNota, PdfPreview, ProcesarResponse, ResumenMateria } from "../../types";
 
 const CORTE_LABELS: Record<number, string> = { 1: "Corte 1", 2: "Corte 2", 3: "Corte 3 / Final" };
 
@@ -54,8 +40,8 @@ interface PdfItem {
   asistenciaAviso: string | null;
 }
 
-export default function DocentePage() {
-  const [corte, setCorte] = useState(2);
+export default function CargarNotasPage() {
+  const [corte, setCorte] = useState(1);
   const [excelFile, setExcelFile] = useState<File | null>(null);
   const [materiasDisponibles, setMateriasDisponibles] = useState<string[]>([]);
   const [pdfItems, setPdfItems] = useState<PdfItem[]>([]);
@@ -236,233 +222,223 @@ export default function DocentePage() {
 
   return (
     <>
-      <Header />
-      <SeccionNav secciones={SECCIONES_NAV} />
-      <main className="page">
-        <p className="texto-ayuda">
-          Carga los PDF de notas de todas tus materias para un corte, confirma a qué bloque de la plantilla
-          corresponde cada uno, y el agente genera un solo Excel con Matriculados, Asistencia regular,
-          Evaluados y Aprobaron de todas ellas. Cada materia procesada queda guardada en la base de datos
-          para el Director y el Secretario Académico.
-        </p>
+      <p className="texto-ayuda">
+        Carga los PDF de notas de todas tus materias para un corte, confirma a qué bloque de la plantilla
+        corresponde cada uno, y el agente genera un solo Excel con Matriculados, Asistencia regular,
+        Evaluados y Aprobaron de todas ellas. Cada materia procesada queda guardada en la base de datos
+        para el Director y el Secretario Académico.
+      </p>
 
-        <CalendarioAcademico />
+      <section className="card">
+        <h2>1. Corte e informe de gestión docente (MI-DO-FO16)</h2>
+        <div className="opciones-corte">
+          {[1, 2, 3].map((c) => (
+            <label key={c} className={`chip ${corte === c ? "chip--activo" : ""}`}>
+              <input type="radio" name="corte" checked={corte === c} onChange={() => setCorte(c)} />
+              {CORTE_LABELS[c]}
+            </label>
+          ))}
+        </div>
+        <label className="campo-archivo">
+          Plantilla Excel del formato de gestión docente (MI-DO-FO16)
+          <input type="file" accept=".xlsx" onChange={handleExcelChange} />
+        </label>
+        {excelFile && <p className="texto-ayuda">📄 {excelFile.name}</p>}
+      </section>
 
-        <section className="card" id="corte-plantilla">
-          <h2>1. Corte e informe de gestión docente (MI-DO-FO16)</h2>
-          <div className="opciones-corte">
-            {[1, 2, 3].map((c) => (
-              <label key={c} className={`chip ${corte === c ? "chip--activo" : ""}`}>
-                <input type="radio" name="corte" checked={corte === c} onChange={() => setCorte(c)} />
-                {CORTE_LABELS[c]}
-              </label>
-            ))}
-          </div>
-          <label className="campo-archivo">
-            Plantilla Excel del formato de gestión docente (MI-DO-FO16)
-            <input type="file" accept=".xlsx" onChange={handleExcelChange} />
-          </label>
-          {excelFile && <p className="texto-ayuda">📄 {excelFile.name}</p>}
-        </section>
+      <section className="card">
+        <h2>2. PDF de notas por materia</h2>
+        <p className="texto-ayuda">Sube uno o varios PDF (uno por cada materia que dictas este corte).</p>
+        <label className="campo-archivo">
+          PDF de notas (reporte "Ver Calificaciones" de Academusoft)
+          <input type="file" accept=".pdf" multiple onChange={handlePdfsChange} />
+        </label>
+      </section>
 
-        <section className="card" id="pdf-notas">
-          <h2>2. PDF de notas por materia</h2>
-          <p className="texto-ayuda">Sube uno o varios PDF (uno por cada materia que dictas este corte).</p>
-          <label className="campo-archivo">
-            PDF de notas (reporte "Ver Calificaciones" de Academusoft)
-            <input type="file" accept=".pdf" multiple onChange={handlePdfsChange} />
-          </label>
-        </section>
-
-        {pdfItems.length > 0 && (
-          <section className="card">
-            <h2>3. Confirma la materia y la asistencia de cada PDF</h2>
-            {pdfItems.map((item) => (
-              <div key={item.id} className="panel-pdf">
-                <div className="panel-pdf__titulo">
-                  <strong>📄 {item.file.name}</strong>
-                  {item.cargando && <span> — leyendo…</span>}
-                  {item.preview && (
-                    <span>
-                      {" "}
-                      → detectado: {item.preview.materia_detectada ?? "¿?"} ({item.preview.grupo ?? "grupo N/D"}) ·{" "}
-                      {item.preview.n_estudiantes} estudiantes
-                    </span>
-                  )}
-                  <button className="btn-quitar" onClick={() => quitarPdf(item.id)} title="Quitar">
-                    ✕
-                  </button>
-                </div>
-
-                {item.error && <p className="mensaje mensaje--error">{item.error}</p>}
-
+      {pdfItems.length > 0 && (
+        <section className="card">
+          <h2>3. Confirma la materia y la asistencia de cada PDF</h2>
+          {pdfItems.map((item) => (
+            <div key={item.id} className="panel-pdf">
+              <div className="panel-pdf__titulo">
+                <strong>📄 {item.file.name}</strong>
+                {item.cargando && <span> — leyendo…</span>}
                 {item.preview && (
-                  <>
-                    <label>
-                      Materia en la plantilla
-                      {materiasDisponibles.length > 0 ? (
-                        <select value={item.materiaSeleccionada} onChange={(e) => cambiarMateria(item.id, e.target.value)}>
-                          {materiasDisponibles.map((m) => (
-                            <option key={m} value={m}>
-                              {m}
-                            </option>
-                          ))}
-                        </select>
-                      ) : (
-                        <input
-                          value={item.materiaSeleccionada}
-                          onChange={(e) => cambiarMateria(item.id, e.target.value)}
-                        />
-                      )}
-                    </label>
+                  <span>
+                    {" "}
+                    → detectado: {item.preview.materia_detectada ?? "¿?"} ({item.preview.grupo ?? "grupo N/D"}) ·{" "}
+                    {item.preview.n_estudiantes} estudiantes
+                  </span>
+                )}
+                <button className="btn-quitar" onClick={() => quitarPdf(item.id)} title="Quitar">
+                  ✕
+                </button>
+              </div>
 
-                    <label className="campo-archivo">
-                      Planilla de asistencia de {CORTE_LABELS[corte]} para esta materia (opcional)
-                      <input type="file" accept=".xlsx" onChange={(e) => handleAsistenciaChange(item.id, e)} />
-                    </label>
-                    {item.asistenciaRegular != null && (
-                      <p className="texto-ayuda">✅ Asistencia regular detectada: {item.asistenciaRegular}</p>
+              {item.error && <p className="mensaje mensaje--error">{item.error}</p>}
+
+              {item.preview && (
+                <>
+                  <label>
+                    Materia en la plantilla
+                    {materiasDisponibles.length > 0 ? (
+                      <select value={item.materiaSeleccionada} onChange={(e) => cambiarMateria(item.id, e.target.value)}>
+                        {materiasDisponibles.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        value={item.materiaSeleccionada}
+                        onChange={(e) => cambiarMateria(item.id, e.target.value)}
+                      />
                     )}
-                    {item.asistenciaAviso && <p className="mensaje mensaje--warning">{item.asistenciaAviso}</p>}
+                  </label>
 
-                    <h4>Evolución por corte y proyección de aprobación (Def. Pond)</h4>
-                    <p className="texto-ayuda">
-                      Ponderación real del acuerdo pedagógico: Corte 1 = 30%, Corte 2 = 30%, Corte 3 = 40%. "Def.
-                      Pond" es lo que el estudiante ya tiene acumulado sobre 100; "Nota necesaria" es lo que le
-                      falta sacar en lo que queda del curso para llegar a 60.
-                    </p>
-                    <ResumenConteoEstado corte={corte} conteo={contarEstados(item.preview.progreso)} />
-                    <TablaProgreso progreso={item.preview.progreso} corte={corte} />
-                  </>
+                  <label className="campo-archivo">
+                    Planilla de asistencia de {CORTE_LABELS[corte]} para esta materia (opcional)
+                    <input type="file" accept=".xlsx" onChange={(e) => handleAsistenciaChange(item.id, e)} />
+                  </label>
+                  {item.asistenciaRegular != null && (
+                    <p className="texto-ayuda">✅ Asistencia regular detectada: {item.asistenciaRegular}</p>
+                  )}
+                  {item.asistenciaAviso && <p className="mensaje mensaje--warning">{item.asistenciaAviso}</p>}
+
+                  <h4>Evolución por corte y proyección de aprobación (Def. Pond)</h4>
+                  <p className="texto-ayuda">
+                    Ponderación real del acuerdo pedagógico: Corte 1 = 30%, Corte 2 = 30%, Corte 3 = 40%. "Def.
+                    Pond" es lo que el estudiante ya tiene acumulado sobre 100; "Nota necesaria" es lo que le
+                    falta sacar en lo que queda del curso para llegar a 60.
+                  </p>
+                  <ResumenConteoEstado corte={corte} conteo={contarEstados(item.preview.progreso)} />
+                  <TablaProgreso progreso={item.preview.progreso} corte={corte} />
+                </>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
+
+      <section className="card">
+        <h2>4. Procesar</h2>
+        {errorGeneral && <p className="mensaje mensaje--error">{errorGeneral}</p>}
+        <button
+          className="btn btn--primario"
+          disabled={!excelFile || pdfItems.length === 0 || procesando}
+          onClick={handleProcesar}
+        >
+          {procesando ? "Procesando…" : "🚀 Procesar todas las materias y generar un solo Excel"}
+        </button>
+      </section>
+
+      {resultado && (
+        <>
+          <section className="card">
+            <h2>Resultado</h2>
+            <p className="mensaje mensaje--exito">
+              Se actualizaron {resultado.resultados.length} materia(s) en un solo archivo y quedaron
+              guardadas en la base de datos.
+            </p>
+            {resultado.resultados.map((r) => (
+              <div key={r.materia} className="resumen-materia">
+                <h3>
+                  {r.materia}
+                  {r.grupo ? ` · grupo ${r.grupo}` : ""}
+                </h3>
+                <div className="kpis">
+                  <Kpi etiqueta="Matriculados" valor={r.matriculados} />
+                  <Kpi etiqueta="Asistencia regular" valor={r.asistencia_regular ?? "—"} />
+                  <Kpi etiqueta="Evaluados" valor={r.evaluados} />
+                  <Kpi etiqueta="Aprobaron" valor={r.aprobaron} />
+                </div>
+                {r.es_estimado && <p className="texto-ayuda">⚠️ Aprobaron es una ESTIMACIÓN (aún faltan cortes por calificar).</p>}
+                {r.asistencia_regular == null && (
+                  <p className="texto-ayuda">⚠️ Sin planilla de asistencia: esa celda quedó marcada para completar a mano.</p>
                 )}
               </div>
             ))}
+            <p className="texto-ayuda">
+              Nota: Inasistencia, Reprobados y los dos % de cada materia se recalculan solos con las fórmulas
+              del Excel al abrirlo/guardarlo en Excel o LibreOffice.
+            </p>
+            <button className="btn btn--primario" onClick={descargarExcel}>
+              ⬇️ Descargar Excel con todas las materias
+            </button>
           </section>
-        )}
 
-        <section className="card" id="procesar">
-          <h2>4. Procesar</h2>
-          {errorGeneral && <p className="mensaje mensaje--error">{errorGeneral}</p>}
-          <button
-            className="btn btn--primario"
-            disabled={!excelFile || pdfItems.length === 0 || procesando}
-            onClick={handleProcesar}
-          >
-            {procesando ? "Procesando…" : "🚀 Procesar todas las materias y generar un solo Excel"}
-          </button>
-        </section>
+          <section className="card">
+            <h2>5. Dashboard de rendimiento</h2>
 
-        {resultado && (
-          <>
-            <section className="card">
-              <h2>Resultado</h2>
-              <p className="mensaje mensaje--exito">
-                Se actualizaron {resultado.resultados.length} materia(s) en un solo archivo y quedaron
-                guardadas en la base de datos.
-              </p>
-              {resultado.resultados.map((r) => (
-                <div key={r.materia} className="resumen-materia">
-                  <h3>
+            <h4>Totales de todas las materias</h4>
+            <div className="totales-generales">
+              <Kpi etiqueta="Matriculados" valor={sumar(resultado.resultados, "matriculados")} />
+              <Kpi etiqueta="Asistencia regular" valor={sumarOpcional(resultado.resultados, "asistencia_regular")} />
+              <Kpi etiqueta="Evaluados" valor={sumar(resultado.resultados, "evaluados")} />
+              <Kpi etiqueta="Aprobaron" valor={sumar(resultado.resultados, "aprobaron")} />
+            </div>
+
+            <h4>Proyección: ¿quiénes ganan y quiénes pierden la materia?</h4>
+            <p className="texto-ayuda">
+              Suma de los {resultado.resultados.length} materia(s) procesadas, según el acumulado ponderado
+              (Def. Pond) de cada estudiante a la fecha.
+            </p>
+            <ProyeccionGeneral resultados={resultado.resultados} corte={corte} />
+
+            <div className="kpis">
+              <Kpi
+                etiqueta="Promedio general (todos los estudiantes)"
+                valor={promedioGeneral(resultado.resultados).toFixed(1)}
+              />
+              <Kpi etiqueta="Dispersión general" valor={`±${dispersionGeneral(resultado.resultados).toFixed(1)}`} />
+            </div>
+
+            <div className="grid-2">
+              <div>
+                <h4>Promedio general vs. mejor nota por asignatura</h4>
+                <GraficoPromedioVsMejor resultados={resultado.resultados} />
+              </div>
+              <div>
+                <h4>Dispersión (desviación estándar) por asignatura</h4>
+                <GraficoDispersion resultados={resultado.resultados} />
+              </div>
+            </div>
+
+            <h4>Rendimiento por estudiante</h4>
+            <label>
+              Ver ranking de estudiantes de:
+              <select value={materiaFoco} onChange={(e) => setMateriaFoco(e.target.value)}>
+                {resultado.resultados.map((r) => (
+                  <option key={r.materia} value={r.materia}>
                     {r.materia}
-                    {r.grupo ? ` · grupo ${r.grupo}` : ""}
-                  </h3>
-                  <div className="kpis">
-                    <Kpi etiqueta="Matriculados" valor={r.matriculados} />
-                    <Kpi etiqueta="Asistencia regular" valor={r.asistencia_regular ?? "—"} />
-                    <Kpi etiqueta="Evaluados" valor={r.evaluados} />
-                    <Kpi etiqueta="Aprobaron" valor={r.aprobaron} />
-                  </div>
-                  {r.es_estimado && <p className="texto-ayuda">⚠️ Aprobaron es una ESTIMACIÓN (aún faltan cortes por calificar).</p>}
-                  {r.asistencia_regular == null && (
-                    <p className="texto-ayuda">⚠️ Sin planilla de asistencia: esa celda quedó marcada para completar a mano.</p>
-                  )}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {materiaFocoResumen && <GraficoRanking resumen={materiaFocoResumen} />}
+          </section>
+
+          <section className="card">
+            <h2>🧠 Interpretación del rendimiento</h2>
+            <p className="mensaje mensaje--info">{resultado.interpretacion_general}</p>
+            {resultado.resultados.map((r) => (
+              <details key={r.materia} className="detalle-interpretacion">
+                <summary>
+                  {r.materia} — promedio {r.promedio.toFixed(1)}, dispersión ±{r.desviacion.toFixed(1)}
+                </summary>
+                <div className="kpis">
+                  <Kpi etiqueta="Promedio" valor={r.promedio.toFixed(1)} />
+                  <Kpi etiqueta="Mediana" valor={r.mediana.toFixed(1)} />
+                  <Kpi etiqueta="Desv. estándar" valor={`±${r.desviacion.toFixed(1)}`} />
+                  <Kpi etiqueta="Coef. de variación" valor={`${r.coef_variacion.toFixed(0)}%`} />
                 </div>
-              ))}
-              <p className="texto-ayuda">
-                Nota: Inasistencia, Reprobados y los dos % de cada materia se recalculan solos con las fórmulas
-                del Excel al abrirlo/guardarlo en Excel o LibreOffice.
-              </p>
-              <button className="btn btn--primario" onClick={descargarExcel}>
-                ⬇️ Descargar Excel con todas las materias
-              </button>
-            </section>
-
-            <section className="card">
-              <h2>5. Dashboard de rendimiento</h2>
-
-              <h4>Totales de todas las materias</h4>
-              <div className="totales-generales">
-                <Kpi etiqueta="Matriculados" valor={sumar(resultado.resultados, "matriculados")} />
-                <Kpi etiqueta="Asistencia regular" valor={sumarOpcional(resultado.resultados, "asistencia_regular")} />
-                <Kpi etiqueta="Evaluados" valor={sumar(resultado.resultados, "evaluados")} />
-                <Kpi etiqueta="Aprobaron" valor={sumar(resultado.resultados, "aprobaron")} />
-              </div>
-
-              <h4>Proyección: ¿quiénes ganan y quiénes pierden la materia?</h4>
-              <p className="texto-ayuda">
-                Suma de los {resultado.resultados.length} materia(s) procesadas, según el acumulado ponderado
-                (Def. Pond) de cada estudiante a la fecha.
-              </p>
-              <ProyeccionGeneral resultados={resultado.resultados} corte={corte} />
-
-              <div className="kpis">
-                <Kpi
-                  etiqueta="Promedio general (todos los estudiantes)"
-                  valor={promedioGeneral(resultado.resultados).toFixed(1)}
-                />
-                <Kpi etiqueta="Dispersión general" valor={`±${dispersionGeneral(resultado.resultados).toFixed(1)}`} />
-              </div>
-
-              <div className="grid-2">
-                <div>
-                  <h4>Promedio general vs. mejor nota por asignatura</h4>
-                  <GraficoPromedioVsMejor resultados={resultado.resultados} />
-                </div>
-                <div>
-                  <h4>Dispersión (desviación estándar) por asignatura</h4>
-                  <GraficoDispersion resultados={resultado.resultados} />
-                </div>
-              </div>
-
-              <h4>Rendimiento por estudiante</h4>
-              <label>
-                Ver ranking de estudiantes de:
-                <select value={materiaFoco} onChange={(e) => setMateriaFoco(e.target.value)}>
-                  {resultado.resultados.map((r) => (
-                    <option key={r.materia} value={r.materia}>
-                      {r.materia}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {materiaFocoResumen && <GraficoRanking resumen={materiaFocoResumen} />}
-            </section>
-
-            <section className="card">
-              <h2>🧠 Interpretación del rendimiento</h2>
-              <p className="mensaje mensaje--info">{resultado.interpretacion_general}</p>
-              {resultado.resultados.map((r) => (
-                <details key={r.materia} className="detalle-interpretacion">
-                  <summary>
-                    {r.materia} — promedio {r.promedio.toFixed(1)}, dispersión ±{r.desviacion.toFixed(1)}
-                  </summary>
-                  <div className="kpis">
-                    <Kpi etiqueta="Promedio" valor={r.promedio.toFixed(1)} />
-                    <Kpi etiqueta="Mediana" valor={r.mediana.toFixed(1)} />
-                    <Kpi etiqueta="Desv. estándar" valor={`±${r.desviacion.toFixed(1)}`} />
-                    <Kpi etiqueta="Coef. de variación" valor={`${r.coef_variacion.toFixed(0)}%`} />
-                  </div>
-                  <p>{r.interpretacion}</p>
-                </details>
-              ))}
-            </section>
-          </>
-        )}
-
-        <EntregasDocumentos materiasDisponibles={materiasDisponibles} />
-
-        <RepositorioAsignaturas />
-      </main>
+                <p>{r.interpretacion}</p>
+              </details>
+            ))}
+          </section>
+        </>
+      )}
     </>
   );
 }

@@ -31,6 +31,7 @@ from db.repository import (
     listar_usuarios,
     marcar_documento_visto,
     marcar_notificacion_entrega,
+    materias_del_docente,
     notificar_usuarios,
     obtener_o_crear_entrega,
     rechazar_entrega,
@@ -170,14 +171,10 @@ def _previsualizar_documento(documento):
         )
 
 
-def render(usuario_id: int, rol: str, materias_disponibles: list[str] | None = None):
+def render(usuario_id: int, rol: str):
     """rol: 'docente' -> sube documentos y ve el estado de su propia
     entrega. 'director'/'secretario'/'secretaria_programa' -> revisa,
-    aprueba o rechaza las entregas de todos los docentes.
-
-    materias_disponibles: lista de materias ya cargadas en la sección
-    '2. PDF de notas por materia' (solo aplica en modo docente) -- para
-    ofrecerlas como lista desplegable en vez de texto libre."""
+    aprueba o rechaza las entregas de todos los docentes."""
     es_docente = rol == "docente"
 
     st.subheader("📎 Entrega de documentos")
@@ -197,17 +194,23 @@ def render(usuario_id: int, rol: str, materias_disponibles: list[str] | None = N
         corte = corte_por_numero(session, corte_numero)
 
         if es_docente:
-            _render_docente(session, usuario_id, periodo, corte, corte_numero, materias_disponibles or [])
+            _render_docente(session, usuario_id, periodo, corte, corte_numero)
         else:
             _render_revisor(session, periodo.id, corte)
     finally:
         session.close()
 
 
-def _render_docente(session, usuario_id, periodo, corte, corte_numero, materias_disponibles):
+def _render_docente(session, usuario_id, periodo, corte, corte_numero):
     """No crea la Entrega hasta que el docente realmente suba un
     documento -- solo la busca, para no ensuciar la base de datos con
     filas vacias por el simple hecho de abrir esta pantalla."""
+    # Materias ya registradas del docente en este periodo (BD) -- no
+    # depende de haber pasado antes por "Cargar notas" en la misma
+    # sesion de navegador, a diferencia de una lista derivada solo del
+    # Excel recien subido (que ademas no sobrevive a un refresco, ver
+    # db.repository.materias_del_docente).
+    materias_disponibles = materias_del_docente(session, usuario_id, periodo.id)
     entrega = buscar_entrega(session, usuario_id, periodo.id, corte.id)
 
     if entrega is not None and entrega.documentos:

@@ -1,11 +1,11 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { AdministracionUsuarios } from "./DireccionPage";
-import { api } from "../api/client";
-import { UsuarioAdmin } from "../types";
+import { AdministracionUsuarios } from "./AdministracionUsuariosPage";
+import { api } from "../../api/client";
+import { UsuarioAdmin } from "../../types";
 
-vi.mock("../api/client", async () => {
-  const actual = await vi.importActual<typeof import("../api/client")>("../api/client");
+vi.mock("../../api/client", async () => {
+  const actual = await vi.importActual<typeof import("../../api/client")>("../../api/client");
   return {
     ...actual,
     api: { get: vi.fn(), post: vi.fn(), put: vi.fn() },

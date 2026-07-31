@@ -712,3 +712,159 @@ select:disabled {
     background: rgba(0, 0, 0, 0.4);
   }
 }
+
+/* --- Modulo de tareas: KPIs + tablero Scrum/Kanban ---------------------- */
+
+.kpis-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+  align-items: start;
+}
+
+.kpi-tarjeta {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  box-shadow: var(--sombra);
+}
+
+.kpi-tarjeta__valor {
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.kpi-tarjeta__etiqueta {
+  font-size: 0.8rem;
+  color: var(--texto-secundario);
+}
+
+.kpi-tarjeta__lista {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0.5rem 0 0;
+  border-top: 1px dashed var(--border);
+  font-size: 0.78rem;
+}
+
+.kpi-tarjeta__lista li {
+  padding: 0.2rem 0;
+}
+
+.kpi-tarjeta__lista li + li {
+  border-top: 1px solid var(--border);
+}
+
+.kpi-tarjeta--alerta .kpi-tarjeta__valor {
+  color: var(--rojo);
+}
+
+.kpi-tarjeta--advertencia .kpi-tarjeta__valor {
+  color: var(--naranja);
+}
+
+.kpi-tarjeta--exito .kpi-tarjeta__valor {
+  color: var(--marca-verde);
+}
+
+.vista-toggle {
+  display: inline-flex;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.kanban {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.kanban__columna {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.6rem;
+  min-height: 120px;
+}
+
+.kanban__titulo {
+  font-size: 0.9rem;
+  font-weight: 700;
+  margin: 0 0 0.6rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.kanban__contador {
+  background: var(--border);
+  color: var(--texto-secundario);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.kanban__tarjeta {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 5px solid var(--marca-azul);
+  border-radius: 8px;
+  padding: 0.55rem 0.65rem;
+  margin-bottom: 0.6rem;
+  box-shadow: var(--sombra);
+  font-size: 0.85rem;
+}
+
+.kanban__tarjeta-titulo {
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.kanban__tarjeta-meta {
+  color: var(--texto-secundario);
+  font-size: 0.78rem;
+  margin-bottom: 0.4rem;
+}
+
+.kanban__tarjeta-acciones {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-top: 0.4rem;
+}
+
+.evidencias-panel {
+  width: 100%;
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px dashed var(--border);
+}
+
+.evidencias-lista {
+  list-style: none;
+  margin: 0 0 0.4rem;
+  padding: 0;
+  font-size: 0.8rem;
+}
+
+.evidencias-lista li {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0;
+}
+
+.evidencias-lista__nombre {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--azul);
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: inherit;
+}

@@ -4,6 +4,7 @@ import CalendarioAcademico from "./components/CalendarioAcademico";
 import EntregasDocumentos from "./components/EntregasDocumentos";
 import ProtectedRoute from "./components/ProtectedRoute";
 import RepositorioAsignaturas from "./components/RepositorioAsignaturas";
+import TareasModulo from "./components/TareasModulo";
 import { useAuth } from "./context/AuthContext";
 import DireccionLayout from "./layouts/DireccionLayout";
 import DocenteLayout from "./layouts/DocenteLayout";
@@ -55,6 +56,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="calendario" replace />} />
         <Route path="calendario" element={<CalendarioAcademico />} />
+        <Route path="tareas" element={<TareasModulo />} />
         <Route path="notas" element={<CargarNotasPage />} />
         <Route path="entregas" element={<EntregasDocumentos />} />
         <Route path="repositorio" element={<RepositorioAsignaturas />} />
@@ -70,6 +72,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="calendario" replace />} />
         <Route path="calendario" element={<CalendarioAcademico />} />
+        <Route path="tareas" element={<TareasModulo />} />
         <Route path="periodo" element={<PeriodoActualPage />} />
         <Route path="informes" element={<InformesDocentesPage />} />
         <Route path="entregas" element={<EntregasDocumentos />} />
@@ -87,6 +90,7 @@ export default function App() {
       >
         <Route index element={<Navigate to="calendario" replace />} />
         <Route path="calendario" element={<CalendarioAcademico />} />
+        <Route path="tareas" element={<TareasModulo />} />
         <Route path="entregas" element={<EntregasDocumentos />} />
         <Route path="repositorio" element={<RepositorioAsignaturas />} />
       </Route>

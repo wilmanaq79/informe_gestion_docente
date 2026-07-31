@@ -24,6 +24,7 @@ from vistas import (
     login,
     notificaciones,
     repositorio_asignaturas,
+    tareas,
 )
 
 # Una pagina por sesion (st.navigation dibuja su propio sidebar nativo,
@@ -37,6 +38,7 @@ from vistas import (
 def _paginas_docente(usuario_id: int) -> list:
     return [
         st.Page(lambda: calendario.render(puede_editar=False), title="Calendario académico", icon="🗓️", url_path="calendario"),
+        st.Page(lambda: tareas.render(usuario_id, "docente"), title="Tareas", icon="📋", url_path="tareas"),
         st.Page(lambda: docente.render_cargar_notas(usuario_id), title="Cargar notas (MI-DO-FO16)", icon="📥", url_path="notas", default=True),
         st.Page(lambda: entregas.render(usuario_id, "docente"), title="Entrega de documentos", icon="📎", url_path="entregas"),
         st.Page(lambda: repositorio_asignaturas.render(usuario_id, "docente"), title="Repositorio", icon="📚", url_path="repositorio"),
@@ -46,6 +48,7 @@ def _paginas_docente(usuario_id: int) -> list:
 def _paginas_direccion(usuario_id: int, rol: str) -> list:
     return [
         st.Page(lambda: calendario.render(puede_editar=True), title="Calendario académico", icon="🗓️", url_path="calendario", default=True),
+        st.Page(lambda: tareas.render(usuario_id, rol), title="Tareas", icon="📋", url_path="tareas"),
         st.Page(direccion.render_periodo, title="Periodo actual", icon="🟢", url_path="periodo"),
         st.Page(direccion.render_informes, title="Informes y seguimiento docente", icon="📊", url_path="informes"),
         st.Page(lambda: entregas.render(usuario_id, rol), title="Entregas", icon="📎", url_path="entregas"),
@@ -57,6 +60,7 @@ def _paginas_direccion(usuario_id: int, rol: str) -> list:
 def _paginas_secretaria(usuario_id: int, rol: str) -> list:
     return [
         st.Page(lambda: calendario.render(puede_editar=False), title="Calendario académico", icon="🗓️", url_path="calendario", default=True),
+        st.Page(lambda: tareas.render(usuario_id, rol), title="Tareas", icon="📋", url_path="tareas"),
         st.Page(lambda: entregas.render(usuario_id, rol), title="Entregas", icon="📎", url_path="entregas"),
         st.Page(lambda: repositorio_asignaturas.render(usuario_id, rol), title="Repositorio", icon="📚", url_path="repositorio"),
     ]

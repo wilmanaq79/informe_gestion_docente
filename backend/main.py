@@ -24,6 +24,7 @@ from backend.api.routers import (
     periodos,
     repositorio_asignaturas,
     reportes,
+    tareas,
     usuarios,
 )
 from backend.core.config import settings
@@ -67,6 +68,7 @@ app.include_router(entregas.router, dependencies=_gate)
 app.include_router(notificaciones.router, dependencies=_gate)
 app.include_router(repositorio_asignaturas.router, dependencies=_gate)
 app.include_router(formatos_institucionales.router, dependencies=_gate)
+app.include_router(tareas.router, dependencies=_gate)
 
 
 @app.get("/api/health", tags=["health"])

@@ -4,6 +4,7 @@ import Sidebar from "../components/ui/Sidebar";
 
 const SECCIONES = [
   { to: "calendario", etiqueta: "🗓️ Calendario académico" },
+  { to: "tareas", etiqueta: "📋 Tareas" },
   { to: "notas", etiqueta: "📥 Cargar notas (MI-DO-FO16)" },
   { to: "entregas", etiqueta: "📎 Entrega de documentos" },
   { to: "repositorio", etiqueta: "📚 Repositorio" },

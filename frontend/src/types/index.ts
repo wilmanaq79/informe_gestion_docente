@@ -303,3 +303,114 @@ export interface FormatoInstitucional {
   lista_asistencia_nombre_archivo: string | null;
   lista_asistencia_tamano_bytes: number | null;
 }
+
+// --- Modulo de tareas (Fase 1) ------------------------------------------
+// Ver docs/especificacionModuloTareas.md.
+
+export interface CategoriaTarea {
+  id: number;
+  nombre: string;
+  activa: boolean;
+}
+
+export interface PrioridadTarea {
+  id: number;
+  nombre: string;
+  icono: string;
+  color: string;
+  orden: number;
+  nivel: number;
+}
+
+export interface EstadoTarea {
+  id: number;
+  nombre: string;
+  icono: string;
+  color: string;
+  orden: number;
+}
+
+export interface ResponsableSecundario {
+  usuario_id: number;
+  nombre_completo: string;
+}
+
+export interface Tarea {
+  id: number;
+  codigo: string;
+  titulo: string;
+  descripcion: string | null;
+  objetivo: string | null;
+  resultado_esperado: string | null;
+  tipo: "institucional" | "personal";
+  categoria_id: number | null;
+  categoria_nombre: string | null;
+  prioridad_id: number;
+  prioridad_nombre: string;
+  estado_id: number;
+  estado_nombre: string;
+  estado_icono: string;
+  programa_id: number;
+  periodo_id: number | null;
+  periodo_nombre: string | null;
+  responsable_principal_id: number | null;
+  responsable_principal_nombre: string | null;
+  responsables_secundarios: ResponsableSecundario[];
+  creado_por_id: number | null;
+  creado_por_nombre: string | null;
+  asignado_por_id: number | null;
+  asignado_por_nombre: string | null;
+  fecha_inicio: string | null;
+  fecha_limite: string | null;
+  hora_limite: string | null;
+  fecha_fin_real: string | null;
+  porcentaje_avance: number;
+  confidencialidad: "normal" | "confidencial";
+  requiere_evidencia: boolean;
+  requiere_aprobacion: boolean;
+  permite_ampliacion: boolean;
+  motivo_cancelacion: string | null;
+  justificacion_retraso: string | null;
+  creado_en: string;
+  actualizado_en: string;
+}
+
+export interface TareaCreate {
+  titulo: string;
+  descripcion?: string;
+  objetivo?: string;
+  resultado_esperado?: string;
+  tipo: "institucional" | "personal";
+  categoria_id?: number | null;
+  prioridad_id: number;
+  fecha_inicio?: string | null;
+  fecha_limite?: string | null;
+  requiere_evidencia?: boolean;
+}
+
+export interface EvidenciaTarea {
+  id: number;
+  nombre_archivo: string;
+  tamano_bytes: number;
+  subido_por_id: number | null;
+  subido_por_nombre: string | null;
+  subido_en: string;
+}
+
+export interface TareaProximaVencer {
+  id: number;
+  codigo: string;
+  titulo: string;
+  fecha_limite: string;
+  dias_restantes: number;
+  responsable_principal_nombre: string | null;
+}
+
+export interface IndicadoresTareas {
+  total: number;
+  por_estado: Record<string, number>;
+  vencidas: number;
+  proximas_a_vencer: number;
+  proximas_a_vencer_detalle: TareaProximaVencer[];
+  cumplimiento_pct: number;
+}

@@ -3,26 +3,32 @@ db/models.py. Mantiene las consultas SQLAlchemy fuera de las vistas de
 Streamlit."""
 import hashlib
 import secrets
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import selectinload
 
 from agente_notas.almacenamiento import eliminar_archivo
 from db.models import (
     AceptacionPoliticaTratamiento,
     AsignacionAcademica,
+    CategoriaTarea,
     Corte,
     DocumentoEntrega,
     Entrega,
+    EstadoTarea,
+    EvidenciaTarea,
     EventoCalendario,
     InformeCorte,
     NotaEstudiante,
     Notificacion,
     PeriodoAcademico,
+    PrioridadTarea,
     Programa,
     RepositorioAsignatura,
     Rol,
+    Tarea,
+    TareaResponsableSecundario,
     TokenRecuperacionPassword,
     Usuario,
 )
@@ -917,20 +923,25 @@ def ids_personal_revisor(session, programa_id: int) -> list[int]:
 
 # --- Notificaciones dentro de la aplicacion -----------------------------------
 
-def crear_notificacion(session, usuario_id: int, mensaje: str, entrega_id: int | None = None) -> Notificacion:
-    notificacion = Notificacion(usuario_id=usuario_id, mensaje=mensaje, entrega_id=entrega_id)
+def crear_notificacion(
+    session, usuario_id: int, mensaje: str, entrega_id: int | None = None, tarea_id: int | None = None
+) -> Notificacion:
+    notificacion = Notificacion(usuario_id=usuario_id, mensaje=mensaje, entrega_id=entrega_id, tarea_id=tarea_id)
     session.add(notificacion)
     session.commit()
     session.refresh(notificacion)
     return notificacion
 
 
-def notificar_usuarios(session, usuario_ids: list[int], mensaje: str, entrega_id: int | None = None) -> None:
+def notificar_usuarios(
+    session, usuario_ids: list[int], mensaje: str, entrega_id: int | None = None, tarea_id: int | None = None
+) -> None:
     """Crea una notificacion identica para cada usuario de la lista
     (p.ej. Director + Secretario + Secretaria + el docente, cuando se
-    aprueba/rechaza una entrega)."""
+    aprueba/rechaza una entrega; o el asignador de una tarea, cuando el
+    responsable la inicia o la termina)."""
     for usuario_id in set(usuario_ids):
-        session.add(Notificacion(usuario_id=usuario_id, mensaje=mensaje, entrega_id=entrega_id))
+        session.add(Notificacion(usuario_id=usuario_id, mensaje=mensaje, entrega_id=entrega_id, tarea_id=tarea_id))
     session.commit()
 
 
@@ -1158,3 +1169,524 @@ def quitar_formato_institucional(session, programa_id: int, tipo: str) -> bool:
     session.commit()
     eliminar_archivo(ruta_anterior)
     return True
+
+
+# --- Modulo de tareas (Fase 1) ------------------------------------------------
+# Ver docs/especificacionModuloTareas.md. Reglas de visibilidad/estado inicial
+# documentadas ahi (seccion "Decisiones de diseno" del plan de Fase 1).
+
+ROLES_ASIGNAN_TAREAS = ("director", "secretario")
+
+
+def listar_categorias_tarea(session, solo_activas: bool = True) -> list[CategoriaTarea]:
+    stmt = select(CategoriaTarea).order_by(CategoriaTarea.nombre)
+    if solo_activas:
+        stmt = stmt.where(CategoriaTarea.activa.is_(True))
+    return list(session.scalars(stmt).all())
+
+
+def crear_categoria_tarea(session, nombre: str) -> CategoriaTarea:
+    categoria = CategoriaTarea(nombre=nombre.strip())
+    session.add(categoria)
+    session.commit()
+    session.refresh(categoria)
+    return categoria
+
+
+def listar_prioridades_tarea(session) -> list[PrioridadTarea]:
+    return list(session.scalars(select(PrioridadTarea).order_by(PrioridadTarea.orden)).all())
+
+
+def listar_estados_tarea(session) -> list[EstadoTarea]:
+    return list(session.scalars(select(EstadoTarea).order_by(EstadoTarea.orden)).all())
+
+
+def _estado_tarea_por_nombre(session, nombre: str) -> EstadoTarea:
+    estado = session.scalar(select(EstadoTarea).where(EstadoTarea.nombre == nombre))
+    if estado is None:
+        raise ValueError(f"Estado de tarea '{nombre}' no existe -- ejecuta la migracion del modulo de tareas.")
+    return estado
+
+
+# Estados que NUNCA pasan a VENCIDA automaticamente: BORRADOR porque
+# todavia no se publica (no tiene una fecha limite "activa" en la
+# practica); TERMINADA/CANCELADA/VENCIDA porque ya estan en un estado
+# final. Todos los demas (SIN_COMENZAR, EN_PROCESO, PENDIENTE_REVISION,
+# DEVUELTA_OBSERVACIONES, PROGRAMADA, SUSPENDIDA) se marcan VENCIDA si
+# se supera fecha_limite -- a pedido explicito del usuario, VENCIDA es
+# un estado real que el sistema asigna solo, no una condicion aparte.
+ESTADOS_EXENTOS_DE_VENCER = ("BORRADOR", "TERMINADA", "CANCELADA", "VENCIDA")
+
+
+def _marcar_tareas_vencidas(session, programa_id: int | None = None) -> None:
+    """UPDATE en bloque (una sola sentencia, sin recorrer en Python) de
+    toda tarea cuya fecha_limite ya paso y cuyo estado no esta exento.
+    Se llama antes de listar_tareas/tarea_por_id -- sustituye a un job
+    periodico aparte (no hay Redis/Celery/APScheduler en este proyecto,
+    ver docs/especificacionModuloTareas.md seccion 27): el estado queda
+    correcto en cuanto alguien vuelve a consultar las tareas, sin
+    necesitar infraestructura de tareas en segundo plano para esto."""
+    estado_vencida_id = _estado_tarea_por_nombre(session, "VENCIDA").id
+    ids_exentos = select(EstadoTarea.id).where(EstadoTarea.nombre.in_(ESTADOS_EXENTOS_DE_VENCER))
+    stmt = (
+        update(Tarea)
+        .where(Tarea.fecha_limite.is_not(None))
+        .where(Tarea.fecha_limite < date.today())
+        .where(Tarea.estado_id.not_in(ids_exentos))
+        .values(estado_id=estado_vencida_id, actualizado_en=datetime.utcnow())
+    )
+    if programa_id is not None:
+        stmt = stmt.where(Tarea.programa_id == programa_id)
+    resultado = session.execute(stmt)
+    session.commit()
+    if resultado.rowcount:
+        # El UPDATE en bloque no pasa por el unit-of-work del ORM: un
+        # objeto Tarea que ya estuviera en el mapa de identidad de esta
+        # sesion (p.ej. recien creado en la misma request) seguiria
+        # mostrando su .estado/.estado_id viejos en memoria aunque la
+        # fila en BD ya haya cambiado -- expire_all() fuerza a releer
+        # todo en el proximo acceso.
+        session.expire_all()
+
+
+_OPCIONES_TAREA = (
+    selectinload(Tarea.categoria),
+    selectinload(Tarea.prioridad),
+    selectinload(Tarea.estado),
+    selectinload(Tarea.programa),
+    selectinload(Tarea.periodo),
+    selectinload(Tarea.responsable_principal),
+    selectinload(Tarea.creado_por),
+    selectinload(Tarea.asignado_por),
+    selectinload(Tarea.responsables_secundarios).selectinload(TareaResponsableSecundario.usuario),
+)
+
+
+def crear_tarea(
+    session,
+    *,
+    titulo: str,
+    tipo: str,
+    prioridad_id: int,
+    programa_id: int,
+    creado_por_id: int,
+    creador_rol: str,
+    descripcion: str | None = None,
+    objetivo: str | None = None,
+    resultado_esperado: str | None = None,
+    categoria_id: int | None = None,
+    periodo_id: int | None = None,
+    fecha_inicio=None,
+    fecha_limite=None,
+    hora_limite=None,
+    confidencialidad: str = "normal",
+    requiere_evidencia: bool = False,
+    requiere_aprobacion: bool = True,
+    permite_ampliacion: bool = True,
+    responsable_principal_id: int | None = None,
+) -> Tarea:
+    """creador_rol determina el estado inicial (regla 8/30 de la
+    especificacion): la Secretaria del Programa solo puede crear
+    Borradores; el resto de roles nace en 'Sin comenzar' directamente.
+    Un Docente solo crea tareas personales, de las que el mismo es
+    responsable principal (no puede asignarselas a otro)."""
+    if creador_rol == "docente":
+        tipo = "personal"
+        responsable_principal_id = creado_por_id
+
+    nombre_estado = "BORRADOR" if creador_rol == "secretaria_programa" else "SIN_COMENZAR"
+    estado = _estado_tarea_por_nombre(session, nombre_estado)
+
+    tarea = Tarea(
+        titulo=titulo.strip(),
+        descripcion=descripcion,
+        objetivo=objetivo,
+        resultado_esperado=resultado_esperado,
+        tipo=tipo,
+        categoria_id=categoria_id,
+        prioridad_id=prioridad_id,
+        estado_id=estado.id,
+        programa_id=programa_id,
+        periodo_id=periodo_id,
+        responsable_principal_id=responsable_principal_id,
+        creado_por_id=creado_por_id,
+        fecha_inicio=fecha_inicio,
+        fecha_limite=fecha_limite,
+        hora_limite=hora_limite,
+        confidencialidad=confidencialidad,
+        requiere_evidencia=requiere_evidencia,
+        requiere_aprobacion=requiere_aprobacion,
+        permite_ampliacion=permite_ampliacion,
+    )
+    session.add(tarea)
+    session.commit()
+    session.refresh(tarea)
+    return tarea
+
+
+def listar_tareas(
+    session,
+    usuario: Usuario,
+    estado: str | None = None,
+    prioridad: str | None = None,
+    categoria_id: int | None = None,
+    responsable_id: int | None = None,
+    tipo: str | None = None,
+    limite: int = 200,
+    offset: int = 0,
+) -> list[Tarea]:
+    """Visibilidad por rol (regla 'no consultar tareas privadas de
+    otros'): Director/Secretario ven todas las del programa; Docente ve
+    donde es responsable (principal o secundario) o creador; Secretaria
+    del Programa ve las que creo o tiene asignadas."""
+    _marcar_tareas_vencidas(session, usuario.programa_id)
+    stmt = select(Tarea).where(Tarea.programa_id == usuario.programa_id).options(*_OPCIONES_TAREA)
+
+    rol = usuario.rol.nombre
+    if rol == "docente":
+        stmt = stmt.where(
+            (Tarea.responsable_principal_id == usuario.id)
+            | (Tarea.creado_por_id == usuario.id)
+            | Tarea.id.in_(
+                select(TareaResponsableSecundario.tarea_id).where(
+                    TareaResponsableSecundario.usuario_id == usuario.id
+                )
+            )
+        )
+    elif rol == "secretaria_programa":
+        stmt = stmt.where((Tarea.creado_por_id == usuario.id) | (Tarea.responsable_principal_id == usuario.id))
+    # director/secretario: sin filtro adicional -- ven todas las del programa.
+
+    if estado:
+        stmt = stmt.join(Tarea.estado).where(EstadoTarea.nombre == estado)
+    if prioridad:
+        stmt = stmt.join(Tarea.prioridad).where(PrioridadTarea.nombre == prioridad)
+    if categoria_id:
+        stmt = stmt.where(Tarea.categoria_id == categoria_id)
+    if responsable_id:
+        stmt = stmt.where(Tarea.responsable_principal_id == responsable_id)
+    if tipo:
+        stmt = stmt.where(Tarea.tipo == tipo)
+
+    stmt = stmt.order_by(Tarea.creado_en.desc()).limit(limite).offset(offset)
+    return list(session.scalars(stmt).unique().all())
+
+
+def tarea_por_id(session, id_: int) -> Tarea | None:
+    """populate_existing=True: los mutadores (actualizar_tarea,
+    asignar_tarea, publicar_tarea) cambian columnas FK (estado_id,
+    prioridad_id, ...) sobre un objeto que puede ya estar en el mapa de
+    identidad de la sesion con sus relaciones (.estado, .prioridad, ...)
+    cargadas de una consulta anterior -- sin esto, esas relaciones
+    quedarian mostrando el valor viejo en la respuesta, aunque la
+    columna FK subyacente ya haya cambiado en la fila."""
+    _marcar_tareas_vencidas(session)
+    stmt = (
+        select(Tarea)
+        .where(Tarea.id == id_)
+        .options(*_OPCIONES_TAREA)
+        .execution_options(populate_existing=True)
+    )
+    return session.scalars(stmt).unique().first()
+
+
+def actualizar_tarea(session, id_: int, actualizado_por_id: int, **campos) -> Tarea | None:
+    """campos: cualquier atributo editable de Tarea (titulo, descripcion,
+    objetivo, resultado_esperado, categoria_id, prioridad_id,
+    fecha_inicio, fecha_limite, hora_limite, confidencialidad,
+    requiere_evidencia, requiere_aprobacion, permite_ampliacion).
+    El chequeo de QUIEN puede editar QUE tarea vive en el router
+    (backend/api/routers/tareas.py), no aqui."""
+    tarea = session.get(Tarea, id_)
+    if tarea is None:
+        return None
+    for campo, valor in campos.items():
+        setattr(tarea, campo, valor)
+    tarea.actualizado_en = datetime.utcnow()
+    session.commit()
+    session.refresh(tarea)
+    return tarea_por_id(session, id_)
+
+
+ESTADOS_CERRADOS = ("TERMINADA", "CANCELADA")
+
+
+def asignar_tarea(
+    session, id_: int, responsable_principal_id: int, asignado_por_id: int,
+    responsables_secundarios_ids: list[int] | None = None,
+) -> Tarea | None:
+    """Una tarea TERMINADA o CANCELADA queda cerrada: ya no se puede
+    asignar ni reasignar (mismo criterio que _verificar_permiso_editar en
+    el router para editar). reasignar_tarea reutiliza esta funcion, asi
+    que la validacion aplica a ambas."""
+    tarea = session.get(Tarea, id_)
+    if tarea is None:
+        return None
+    if tarea.estado.nombre in ESTADOS_CERRADOS:
+        raise ValueError(f"No se puede asignar una tarea en estado {tarea.estado.nombre}.")
+    tarea.responsable_principal_id = responsable_principal_id
+    tarea.asignado_por_id = asignado_por_id
+    tarea.actualizado_en = datetime.utcnow()
+    if responsables_secundarios_ids is not None:
+        for existente in list(tarea.responsables_secundarios):
+            session.delete(existente)
+        session.flush()
+        for usuario_id in responsables_secundarios_ids:
+            if usuario_id == responsable_principal_id:
+                continue
+            session.add(TareaResponsableSecundario(tarea_id=id_, usuario_id=usuario_id))
+    session.commit()
+    return tarea_por_id(session, id_)
+
+
+def reasignar_tarea(session, id_: int, nuevo_responsable_principal_id: int, asignado_por_id: int) -> Tarea | None:
+    return asignar_tarea(session, id_, nuevo_responsable_principal_id, asignado_por_id)
+
+
+def publicar_tarea(session, id_: int, publicado_por_id: int) -> Tarea | None:
+    """Borrador (Secretaria del Programa) -> Sin comenzar. Solo valido
+    si la tarea esta hoy en BORRADOR."""
+    tarea = session.get(Tarea, id_)
+    if tarea is None:
+        return None
+    if tarea.estado.nombre != "BORRADOR":
+        raise ValueError("Solo se puede publicar una tarea que este en Borrador.")
+    tarea.estado_id = _estado_tarea_por_nombre(session, "SIN_COMENZAR").id
+    if tarea.asignado_por_id is None:
+        tarea.asignado_por_id = publicado_por_id
+    tarea.actualizado_en = datetime.utcnow()
+    session.commit()
+    return tarea_por_id(session, id_)
+
+
+# Quien puede iniciar/terminar segun rol y responsable se decide en el
+# router (backend/api/routers/tareas.py) -- estas funciones solo validan
+# la maquina de estados, igual que el resto de mutadores de este modulo.
+
+def reactivar_tarea(session, id_: int, nueva_fecha_limite: date) -> Tarea | None:
+    """Vencida -> Sin comenzar (si nunca se habia iniciado) o En proceso
+    (si ya tenia fecha_inicio, es decir, el trabajo ya habia arrancado
+    antes de que se venciera). Exige una nueva fecha limite en el futuro:
+    sin esto, _marcar_tareas_vencidas la volveria a marcar VENCIDA en la
+    proxima consulta (la condicion de auto-vencido solo mira
+    fecha_limite < hoy, no importa el estado que se le ponga)."""
+    tarea = session.get(Tarea, id_)
+    if tarea is None:
+        return None
+    if tarea.estado.nombre != "VENCIDA":
+        raise ValueError(f"No se puede reactivar una tarea en estado {tarea.estado.nombre}.")
+    if nueva_fecha_limite < date.today():
+        raise ValueError("La nueva fecha límite debe ser hoy o una fecha futura.")
+    nuevo_estado = "EN_PROCESO" if tarea.fecha_inicio is not None else "SIN_COMENZAR"
+    tarea.estado_id = _estado_tarea_por_nombre(session, nuevo_estado).id
+    tarea.fecha_limite = nueva_fecha_limite
+    tarea.actualizado_en = datetime.utcnow()
+    session.commit()
+    return tarea_por_id(session, id_)
+
+
+def iniciar_tarea(session, id_: int) -> Tarea | None:
+    """Sin comenzar | Devuelta con observaciones -> En proceso. Registra
+    fecha_inicio (la fecha REAL en la que se empezo a trabajar, no una
+    fecha planeada) la primera vez que la tarea se inicia -- si ya tenia
+    una fecha_inicio (p.ej. quedo de una devolucion anterior), no se
+    sobreescribe."""
+    tarea = session.get(Tarea, id_)
+    if tarea is None:
+        return None
+    if tarea.estado.nombre not in ("SIN_COMENZAR", "DEVUELTA_OBSERVACIONES"):
+        raise ValueError(f"No se puede iniciar una tarea en estado {tarea.estado.nombre}.")
+    tarea.estado_id = _estado_tarea_por_nombre(session, "EN_PROCESO").id
+    if tarea.fecha_inicio is None:
+        tarea.fecha_inicio = date.today()
+    tarea.actualizado_en = datetime.utcnow()
+    session.commit()
+    return tarea_por_id(session, id_)
+
+
+def terminar_tarea(session, id_: int) -> Tarea | None:
+    """En proceso -> Terminada (cierre DIRECTO, sin pasar por revision).
+    Registra fecha_fin_real y deja el avance en 100%. El chequeo de si
+    esta tarea requiere aprobacion de Director/Secretario para poder
+    terminarla (tarea.requiere_aprobacion) vive en el router: cuando
+    requiere aprobacion y quien actua no puede cerrar directo, el router
+    llama a enviar_a_revision_tarea en vez de esta funcion -- esta
+    funcion solo aplica la transicion final."""
+    tarea = session.get(Tarea, id_)
+    if tarea is None:
+        return None
+    if tarea.estado.nombre != "EN_PROCESO":
+        raise ValueError(f"No se puede terminar una tarea en estado {tarea.estado.nombre}.")
+    tarea.estado_id = _estado_tarea_por_nombre(session, "TERMINADA").id
+    tarea.fecha_fin_real = datetime.utcnow()
+    tarea.porcentaje_avance = 100
+    tarea.actualizado_en = datetime.utcnow()
+    session.commit()
+    return tarea_por_id(session, id_)
+
+
+def enviar_a_revision_tarea(session, id_: int) -> Tarea | None:
+    """En proceso -> Pendiente de revision. Es la manera que tiene el
+    responsable de INFORMAR que termino su parte cuando la tarea
+    requiere_aprobacion (no puede cerrarla el mismo) -- sin esto, ese
+    responsable no tenia ninguna accion disponible al terminar y quedaba
+    la tarea colgada en EN_PROCESO para siempre. Deja el avance en 100%
+    igual que un cierre directo; el estado (no un campo aparte) es lo
+    que indica que falta la aprobacion de Director/Secretario."""
+    tarea = session.get(Tarea, id_)
+    if tarea is None:
+        return None
+    if tarea.estado.nombre != "EN_PROCESO":
+        raise ValueError(f"No se puede enviar a revisión una tarea en estado {tarea.estado.nombre}.")
+    tarea.estado_id = _estado_tarea_por_nombre(session, "PENDIENTE_REVISION").id
+    tarea.porcentaje_avance = 100
+    tarea.actualizado_en = datetime.utcnow()
+    session.commit()
+    return tarea_por_id(session, id_)
+
+
+def aprobar_tarea(session, id_: int) -> Tarea | None:
+    """Pendiente de revision -> Terminada. Cierre definitivo por
+    Director/Secretario (el chequeo de rol vive en el router, igual que
+    en terminar_tarea)."""
+    tarea = session.get(Tarea, id_)
+    if tarea is None:
+        return None
+    if tarea.estado.nombre != "PENDIENTE_REVISION":
+        raise ValueError(f"No se puede aprobar una tarea en estado {tarea.estado.nombre}.")
+    tarea.estado_id = _estado_tarea_por_nombre(session, "TERMINADA").id
+    tarea.fecha_fin_real = datetime.utcnow()
+    tarea.actualizado_en = datetime.utcnow()
+    session.commit()
+    return tarea_por_id(session, id_)
+
+
+def devolver_tarea(session, id_: int) -> Tarea | None:
+    """Pendiente de revision -> Devuelta con observaciones. El motivo de
+    la devolucion NO se persiste en una columna nueva -- se envia como
+    notificacion in-app al responsable (ver
+    backend/api/routers/tareas.py::devolver), reutilizando el sistema de
+    notificaciones ya existente en vez de agregar un campo mas."""
+    tarea = session.get(Tarea, id_)
+    if tarea is None:
+        return None
+    if tarea.estado.nombre != "PENDIENTE_REVISION":
+        raise ValueError(f"No se puede devolver una tarea en estado {tarea.estado.nombre}.")
+    tarea.estado_id = _estado_tarea_por_nombre(session, "DEVUELTA_OBSERVACIONES").id
+    tarea.porcentaje_avance = 0
+    tarea.actualizado_en = datetime.utcnow()
+    session.commit()
+    return tarea_por_id(session, id_)
+
+
+ESTADOS_CANCELABLES = ("BORRADOR", "SIN_COMENZAR", "EN_PROCESO", "DEVUELTA_OBSERVACIONES", "PENDIENTE_REVISION")
+
+
+def cancelar_tarea(session, id_: int, motivo: str) -> Tarea | None:
+    """Cancelacion logica (nunca DELETE fisico, ver
+    docs/especificacionModuloTareas.md seccion 6 y regla de auditoria del
+    sistema completo). Solo valida desde estados abiertos; una tarea ya
+    Terminada o Vencida no se cancela, y cancelar dos veces no tiene
+    efecto util asi que tampoco se permite."""
+    tarea = session.get(Tarea, id_)
+    if tarea is None:
+        return None
+    if tarea.estado.nombre not in ESTADOS_CANCELABLES:
+        raise ValueError(f"No se puede cancelar una tarea en estado {tarea.estado.nombre}.")
+    tarea.estado_id = _estado_tarea_por_nombre(session, "CANCELADA").id
+    tarea.motivo_cancelacion = motivo
+    tarea.actualizado_en = datetime.utcnow()
+    session.commit()
+    return tarea_por_id(session, id_)
+
+
+def indicadores_tareas(session, usuario: Usuario) -> dict:
+    """KPIs calculados al vuelo (sin tabla de indicadores persistida,
+    ver docs/especificacionModuloTareas.md seccion 18) sobre EXACTAMENTE
+    las mismas tareas que ve este usuario en listar_tareas -- Director/
+    Secretario obtienen los KPIs del programa completo, Docente/
+    Secretaria del Programa obtienen los suyos, sin duplicar la logica
+    de visibilidad."""
+    tareas = listar_tareas(session, usuario, limite=100000)
+    por_estado: dict[str, int] = {}
+    for t in tareas:
+        por_estado[t.estado.nombre] = por_estado.get(t.estado.nombre, 0) + 1
+
+    total = len(tareas)
+    vencidas = por_estado.get("VENCIDA", 0)
+    hoy = date.today()
+    tareas_proximas_a_vencer = sorted(
+        (
+            t
+            for t in tareas
+            if t.fecha_limite is not None
+            and t.estado.nombre not in ("TERMINADA", "CANCELADA", "VENCIDA", "BORRADOR")
+            and 0 <= (t.fecha_limite - hoy).days <= 3
+        ),
+        key=lambda t: t.fecha_limite,
+    )
+    # "Validas" excluye Canceladas (regla 11 de la especificacion: las
+    # tareas canceladas justificadamente no se incluyen) y Borradores
+    # (todavia no son un compromiso real, nadie las esta ejecutando).
+    validas = total - por_estado.get("CANCELADA", 0) - por_estado.get("BORRADOR", 0)
+    terminadas = por_estado.get("TERMINADA", 0)
+    cumplimiento_pct = round((terminadas / validas * 100), 1) if validas else 0.0
+
+    return {
+        "total": total,
+        "por_estado": por_estado,
+        "vencidas": vencidas,
+        "proximas_a_vencer": len(tareas_proximas_a_vencer),
+        "proximas_a_vencer_detalle": [
+            {
+                "id": t.id,
+                "codigo": f"TAR-{t.id:06d}",
+                "titulo": t.titulo,
+                "fecha_limite": t.fecha_limite,
+                "dias_restantes": (t.fecha_limite - hoy).days,
+                "responsable_principal_nombre": t.responsable_principal.nombre_completo if t.responsable_principal else None,
+            }
+            for t in tareas_proximas_a_vencer
+        ],
+        "cumplimiento_pct": cumplimiento_pct,
+    }
+
+
+def agregar_evidencia_tarea(
+    session, tarea_id: int, nombre_archivo: str, ruta_archivo: str, tamano_bytes: int, subido_por_id: int,
+) -> EvidenciaTarea:
+    evidencia = EvidenciaTarea(
+        tarea_id=tarea_id, nombre_archivo=nombre_archivo, ruta_archivo=ruta_archivo,
+        tamano_bytes=tamano_bytes, subido_por_id=subido_por_id,
+    )
+    session.add(evidencia)
+    session.commit()
+    session.refresh(evidencia)
+    return evidencia
+
+
+def listar_evidencias_tarea(session, tarea_id: int) -> list[EvidenciaTarea]:
+    stmt = (
+        select(EvidenciaTarea)
+        .where(EvidenciaTarea.tarea_id == tarea_id)
+        .order_by(EvidenciaTarea.subido_en.desc())
+    )
+    return list(session.scalars(stmt).all())
+
+
+def evidencia_tarea_por_id(session, id_: int) -> EvidenciaTarea | None:
+    return session.get(EvidenciaTarea, id_)
+
+
+def eliminar_evidencia_tarea(session, id_: int) -> str | None:
+    """Borra el registro y devuelve la ruta_archivo (para que el router
+    borre el archivo en disco via agente_notas.almacenamiento.eliminar_archivo,
+    igual que se hace con DocumentoEntrega/RepositorioAsignatura) -- None
+    si no existia."""
+    evidencia = session.get(EvidenciaTarea, id_)
+    if evidencia is None:
+        return None
+    ruta = evidencia.ruta_archivo
+    session.delete(evidencia)
+    session.commit()
+    return ruta

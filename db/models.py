@@ -29,7 +29,7 @@ Diagrama entidad-relacion:
                                         *
                               notas_estudiantes
 """
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 from sqlalchemy import (
     Boolean,
@@ -39,6 +39,7 @@ from sqlalchemy import (
     Index,
     Numeric,
     String,
+    Time,
     UniqueConstraint,
     text,
 )
@@ -404,6 +405,7 @@ class Notificacion(Base):
     )
     mensaje: Mapped[str] = mapped_column(String(500), nullable=False)
     entrega_id: Mapped[int | None] = mapped_column(ForeignKey("entregas.id", ondelete="SET NULL"))
+    tarea_id: Mapped[int | None] = mapped_column(ForeignKey("tareas.id", ondelete="SET NULL"))
     leida: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -511,3 +513,151 @@ class IntentoLoginFallido(Base):
     clave: Mapped[str] = mapped_column(String(50), primary_key=True)  # username normalizado
     intentos: Mapped[int] = mapped_column(nullable=False, default=0)
     primer_intento_en: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+# --- Modulo de tareas (Fase 1: catalogos + CRUD basico) ----------------------
+# Ver docs/especificacionModuloTareas.md. Reutiliza usuarios/roles/programas/
+# periodos_academicos ya existentes -- estas son las tablas nuevas del modulo.
+
+class CategoriaTarea(Base):
+    """Catalogo configurable por el Director (alta desde la UI, ver
+    backend/api/routers/tareas.py). Las 22 iniciales de la especificacion
+    se siembran en scripts/migrar_modulo_tareas.py."""
+
+    __tablename__ = "categorias_tarea"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(60), unique=True, nullable=False)
+    activa: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+class PrioridadTarea(Base):
+    """Vocabulario fijo del sistema (BAJA/MEDIA/ALTA/CRITICA, sembrado por
+    la migracion) -- a diferencia de las categorias, no tiene endpoint de
+    alta en esta fase."""
+
+    __tablename__ = "prioridades_tarea"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
+    icono: Mapped[str] = mapped_column(String(10), nullable=False)
+    color: Mapped[str] = mapped_column(String(20), nullable=False)
+    orden: Mapped[int] = mapped_column(nullable=False)
+    nivel: Mapped[int] = mapped_column(nullable=False)
+
+
+class EstadoTarea(Base):
+    """Los 10 estados de la especificacion (BORRADOR..VENCIDA), sembrados
+    por la migracion. VENCIDA es un estado real (no solo una condicion
+    calculada aparte) -- el sistema lo asigna automaticamente cuando se
+    supera fecha_limite y la tarea no ha sido finalizada/cancelada, ver
+    db.repository._marcar_tareas_vencidas."""
+
+    __tablename__ = "estados_tarea"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(30), unique=True, nullable=False)
+    icono: Mapped[str] = mapped_column(String(10), nullable=False, server_default="")
+    color: Mapped[str] = mapped_column(String(20), nullable=False, server_default="")
+    orden: Mapped[int] = mapped_column(nullable=False)
+
+
+class Tarea(Base):
+    """Tarea academica o administrativa. Fase 1: campos centrales del CRUD
+    basico -- subtareas, dependencias, evidencias, comentarios,
+    seguimiento, evaluaciones, ampliaciones y auditoria llegan en fases
+    posteriores (ver docs/especificacionModuloTareas.md, seccion 34)."""
+
+    __tablename__ = "tareas"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    titulo: Mapped[str] = mapped_column(String(200), nullable=False)
+    descripcion: Mapped[str | None] = mapped_column(String)
+    objetivo: Mapped[str | None] = mapped_column(String)
+    resultado_esperado: Mapped[str | None] = mapped_column(String)
+    # "institucional" | "personal" -- distincion central de reglas de
+    # negocio (regla 11: las personales no afectan indicadores
+    # institucionales), no un catalogo configurable.
+    tipo: Mapped[str] = mapped_column(String(20), nullable=False)
+
+    categoria_id: Mapped[int | None] = mapped_column(ForeignKey("categorias_tarea.id"))
+    prioridad_id: Mapped[int] = mapped_column(ForeignKey("prioridades_tarea.id"), nullable=False)
+    estado_id: Mapped[int] = mapped_column(ForeignKey("estados_tarea.id"), nullable=False)
+
+    programa_id: Mapped[int] = mapped_column(ForeignKey("programas.id"), nullable=False, index=True)
+    periodo_id: Mapped[int | None] = mapped_column(ForeignKey("periodos_academicos.id"))
+
+    responsable_principal_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"), index=True)
+    creado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    asignado_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+
+    fecha_inicio: Mapped[date | None] = mapped_column(Date)
+    fecha_limite: Mapped[date | None] = mapped_column(Date)
+    hora_limite: Mapped[time | None] = mapped_column(Time)
+    fecha_fin_real: Mapped[datetime | None] = mapped_column(DateTime)
+
+    porcentaje_avance: Mapped[int] = mapped_column(default=0, nullable=False)
+    # "normal" | "confidencial" -- niveles adicionales se agregan si la
+    # operacion real los requiere; no bloquea la Fase 1 con una tabla
+    # de catalogo para algo que hoy solo necesita 2 valores.
+    confidencialidad: Mapped[str] = mapped_column(String(20), default="normal", nullable=False)
+
+    requiere_evidencia: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    requiere_aprobacion: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    permite_ampliacion: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    motivo_cancelacion: Mapped[str | None] = mapped_column(String)
+    justificacion_retraso: Mapped[str | None] = mapped_column(String)
+
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    actualizado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    categoria: Mapped["CategoriaTarea | None"] = relationship()
+    prioridad: Mapped["PrioridadTarea"] = relationship()
+    estado: Mapped["EstadoTarea"] = relationship()
+    programa: Mapped["Programa"] = relationship()
+    periodo: Mapped["PeriodoAcademico | None"] = relationship()
+    responsable_principal: Mapped["Usuario | None"] = relationship(foreign_keys=[responsable_principal_id])
+    creado_por: Mapped["Usuario | None"] = relationship(foreign_keys=[creado_por_id])
+    asignado_por: Mapped["Usuario | None"] = relationship(foreign_keys=[asignado_por_id])
+    responsables_secundarios: Mapped[list["TareaResponsableSecundario"]] = relationship(
+        back_populates="tarea", cascade="all, delete-orphan"
+    )
+    evidencias: Mapped[list["EvidenciaTarea"]] = relationship(back_populates="tarea", cascade="all, delete-orphan")
+
+
+class TareaResponsableSecundario(Base):
+    """Responsables adicionales de una tarea (ademas del principal) --
+    tabla puente simple, sin datos propios mas alla de quien y cuando."""
+
+    __tablename__ = "tarea_responsables_secundarios"
+    __table_args__ = (UniqueConstraint("tarea_id", "usuario_id", name="uq_tarea_responsable_secundario"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tarea_id: Mapped[int] = mapped_column(ForeignKey("tareas.id", ondelete="CASCADE"), nullable=False, index=True)
+    usuario_id: Mapped[int] = mapped_column(ForeignKey("usuarios.id"), nullable=False)
+    creado_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    tarea: Mapped["Tarea"] = relationship(back_populates="responsables_secundarios")
+    usuario: Mapped["Usuario"] = relationship()
+
+
+class EvidenciaTarea(Base):
+    """Archivo de soporte subido para una tarea con requiere_evidencia=True
+    (ver docs/especificacionModuloTareas.md seccion 8). El archivo en si
+    vive en disco (agente_notas.almacenamiento.guardar_archivo_evidencia_tarea),
+    igual que DocumentoEntrega/RepositorioAsignatura -- aqui solo se
+    guarda la ruta y los metadatos."""
+
+    __tablename__ = "evidencias_tarea"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tarea_id: Mapped[int] = mapped_column(ForeignKey("tareas.id", ondelete="CASCADE"), nullable=False, index=True)
+    nombre_archivo: Mapped[str] = mapped_column(String(255), nullable=False)
+    ruta_archivo: Mapped[str] = mapped_column(String(500), nullable=False)
+    tamano_bytes: Mapped[int] = mapped_column(nullable=False)
+    subido_por_id: Mapped[int | None] = mapped_column(ForeignKey("usuarios.id"))
+    subido_en: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    tarea: Mapped["Tarea"] = relationship(back_populates="evidencias")
+    subido_por: Mapped["Usuario | None"] = relationship()

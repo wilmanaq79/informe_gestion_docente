@@ -30,6 +30,9 @@ repositorio_asignaturas/
 # Formatos institucionales por programa academico (archivos reales)
 formatos_institucionales/
 
+# Evidencias adjuntas a tareas del modulo de tareas (archivos reales)
+evidencias_tareas/
+
 # Frontend (Node / Vite)
 frontend/node_modules/
 frontend/dist/

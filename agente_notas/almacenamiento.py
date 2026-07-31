@@ -15,7 +15,10 @@ RAIZ = Path(__file__).resolve().parent.parent
 DIRECTORIO_ENTREGAS = RAIZ / "entregas_docentes"
 DIRECTORIO_REPOSITORIO = RAIZ / "repositorio_asignaturas"
 DIRECTORIO_INSTITUCIONAL = RAIZ / "formatos_institucionales"
-DIRECTORIOS_PERMITIDOS = (DIRECTORIO_ENTREGAS, DIRECTORIO_REPOSITORIO, DIRECTORIO_INSTITUCIONAL)
+DIRECTORIO_EVIDENCIAS_TAREAS = RAIZ / "evidencias_tareas"
+DIRECTORIOS_PERMITIDOS = (
+    DIRECTORIO_ENTREGAS, DIRECTORIO_REPOSITORIO, DIRECTORIO_INSTITUCIONAL, DIRECTORIO_EVIDENCIAS_TAREAS,
+)
 
 # Whitelist real de extensiones aceptadas para CUALQUIER archivo que un
 # usuario suba (entregas y repositorio): el <input accept="..."> del
@@ -130,6 +133,22 @@ def guardar_archivo_institucional(programa_id: int, tipo: str, nombre_original: 
     carpeta.mkdir(parents=True, exist_ok=True)
 
     ruta_absoluta = carpeta / _nombre_archivo_unico(tipo, nombre_original)
+    ruta_absoluta.write_bytes(contenido)
+
+    ruta_relativa = ruta_absoluta.relative_to(RAIZ).as_posix()
+    return ruta_relativa, len(contenido)
+
+
+def guardar_archivo_evidencia_tarea(tarea_id: int, nombre_original: str, contenido: bytes) -> tuple[str, int]:
+    """Guarda un archivo de evidencia adjunto a una tarea (solo aplica si
+    esa tarea tiene requiere_evidencia=True, ver
+    backend/api/routers/tareas.py). Devuelve
+    (ruta_relativa_al_proyecto, tamaño_en_bytes)."""
+    validar_archivo_subido(nombre_original, contenido)
+    carpeta = DIRECTORIO_EVIDENCIAS_TAREAS / f"tarea_{tarea_id}"
+    carpeta.mkdir(parents=True, exist_ok=True)
+
+    ruta_absoluta = carpeta / _nombre_archivo_unico("evidencia", nombre_original)
     ruta_absoluta.write_bytes(contenido)
 
     ruta_relativa = ruta_absoluta.relative_to(RAIZ).as_posix()

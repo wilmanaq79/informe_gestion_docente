@@ -26,6 +26,7 @@ primera vez en esta máquina, y usa credenciales propias — nunca un usuario
 ---
 
 ## Paso 1 — Backend (FastAPI)
+deactivate
 
 Abre una terminal y activa el entorno virtual:
 ```bash

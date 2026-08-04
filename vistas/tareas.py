@@ -3,12 +3,13 @@ docs/especificacionModuloTareas.md): KPIs, tablero Scrum/Kanban y lista
 con filtro por estado, creación, asignación/publicación y transiciones
 de estado (iniciar/terminar/cancelar). Paridad con
 frontend/src/components/TareasModulo.tsx."""
+import base64
 import io
 from datetime import date
 
 import streamlit as st
 
-from agente_notas.almacenamiento import ArchivoInvalido, guardar_archivo_evidencia_tarea
+from agente_notas.almacenamiento import ArchivoInvalido, guardar_archivo_evidencia_tarea, ruta_absoluta_segura
 from agente_notas.almacenamiento import eliminar_archivo as _eliminar_archivo_disco
 from backend.services.reporte_tareas_pdf import generar_informe_tareas
 from db.database import get_session
@@ -99,6 +100,36 @@ def _puede_asignar(t, es_admin: bool) -> bool:
 
 def _puede_reactivar(t, rol: str) -> bool:
     return t.estado.nombre == "VENCIDA" and rol in ROLES_REACTIVAN
+
+
+# El boton de evidencias solo debe estar activo mientras la tarea este
+# activa -- se desactiva en Terminada, Vencida o Cancelada.
+ESTADOS_TAREA_INACTIVA = ("TERMINADA", "VENCIDA", "CANCELADA")
+
+
+def _previsualizar_evidencia(ev):
+    """Vista previa inline (👁️ Ver): PDF e imagenes se muestran
+    directamente; otros tipos no tienen visor nativo en el navegador, asi
+    que se ofrece la descarga. Mismo patron que
+    vistas/entregas.py::_previsualizar_documento."""
+    ruta = ruta_absoluta_segura(ev.ruta_archivo)
+    if ruta is None:
+        st.error("El archivo ya no existe en el servidor.")
+        return
+
+    contenido = ruta.read_bytes()
+    extension = ruta.suffix.lower()
+    if extension in (".jpg", ".jpeg", ".png"):
+        st.image(contenido, caption=ev.nombre_archivo)
+    elif extension == ".pdf":
+        b64 = base64.b64encode(contenido).decode()
+        st.markdown(
+            f'<iframe src="data:application/pdf;base64,{b64}" width="100%" height="600" '
+            'style="border:1px solid #4a4a4a;"></iframe>',
+            unsafe_allow_html=True,
+        )
+    else:
+        st.info(f"No hay vista previa disponible para este tipo de archivo ({extension}). Descárgalo para verlo.")
 
 
 def _notificar_cambio_estado(session, t, usuario, accion: str, detalle: str = "") -> None:
@@ -213,14 +244,28 @@ def _acciones_tarea(session, t, usuario, rol: str, es_admin: bool, docentes, suf
                     st.success("Tarea reactivada.")
                     st.rerun()
 
-    if t.requiere_evidencia:
+    if t.requiere_evidencia and t.estado.nombre in ESTADOS_TAREA_INACTIVA:
+        st.button(
+            "📎 Evidencias", key=f"tarea_evidencia_disabled_{sufijo}_{t.id}", disabled=True,
+            help="Esta tarea ya no está activa; las evidencias quedaron guardadas pero no se pueden gestionar aquí.",
+        )
+    elif t.requiere_evidencia:
         with st.expander("📎 Evidencias", expanded=False):
             evidencias = listar_evidencias_tarea(session, t.id)
             if not evidencias:
                 st.caption("Sin evidencias adjuntas todavía.")
             for ev in evidencias:
-                col_nombre, col_borrar = st.columns([4, 1])
+                col_nombre, col_ver, col_descargar, col_borrar = st.columns([3, 1, 1, 1])
                 col_nombre.write(f"📄 {ev.nombre_archivo} ({ev.tamano_bytes / 1024:.0f} KB)")
+                if col_ver.button("👁️ Ver", key=f"tarea_evidencia_ver_{sufijo}_{t.id}_{ev.id}"):
+                    st.session_state[f"tarea_evidencia_previa_{ev.id}"] = True
+                    st.rerun()
+                ruta_ev = ruta_absoluta_segura(ev.ruta_archivo)
+                col_descargar.download_button(
+                    "⬇️ Descargar", data=ruta_ev.read_bytes() if ruta_ev else b"",
+                    file_name=ev.nombre_archivo, disabled=ruta_ev is None,
+                    key=f"tarea_evidencia_descargar_{sufijo}_{t.id}_{ev.id}",
+                )
                 if (es_admin or ev.subido_por_id == usuario_id) and col_borrar.button(
                     "✕", key=f"tarea_evidencia_borrar_{sufijo}_{t.id}_{ev.id}"
                 ):
@@ -228,6 +273,8 @@ def _acciones_tarea(session, t, usuario, rol: str, es_admin: bool, docentes, suf
                     if ruta:
                         _eliminar_archivo_disco(ruta)
                     st.rerun()
+                if st.session_state.get(f"tarea_evidencia_previa_{ev.id}"):
+                    _previsualizar_evidencia(ev)
 
             if _puede_subir_evidencia(t, usuario_id, es_admin):
                 archivo = st.file_uploader(

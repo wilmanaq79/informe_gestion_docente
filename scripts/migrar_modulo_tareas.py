@@ -133,7 +133,10 @@ def migrar():
             )
         for nombre in _CATEGORIAS:
             conn.execute(
-                text("INSERT INTO categorias_tarea (nombre) VALUES (:nombre) ON CONFLICT (nombre) DO NOTHING"),
+                text(
+                    "INSERT INTO categorias_tarea (nombre, activa) VALUES (:nombre, TRUE) "
+                    "ON CONFLICT (nombre) DO NOTHING"
+                ),
                 {"nombre": nombre},
             )
 
